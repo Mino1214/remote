@@ -59,6 +59,53 @@ key=<hbbs-public-key>
 2. Inno Setup 스크립트 작성
 3. 서명/버전 정보 반영 후 `setup.exe` 생성
 
+이 저장소에는 원클릭 배포용 기본 스크립트를 포함합니다.
+
+- `installer/setup.iss`
+- `installer/configure-custom.ps1`
+- `installer/add-firewall-rules.ps1`
+- `installer/router-portforward-guide.md`
+
+#### 구현된 동작
+
+- 설치 시 관리자 권한 요청 (`PrivilegesRequired=admin`)
+- 설치 단계에서 `custom.txt` 자동 생성
+  - `rendezvous-server`, `relay-server`, `key` 자동 반영
+- 설치 단계에서 Windows 방화벽 규칙 자동 등록
+  - 대상 exe 기준 Inbound TCP/UDP 허용
+- 설치 완료 메시지로 공유기 포트포워딩 안내 링크 제공
+
+#### Inno Setup 빌드 예시
+
+`installer/setup.iss`는 아래 파라미터를 받아 환경별 패키징이 가능합니다.
+
+```powershell
+iscc .\installer\setup.iss `
+  /DServerDomain=housingnewshub.info `
+  /DServerRelay=housingnewshub.info:21117 `
+  /DServerPubKey=YOUR_HBBS_PUBLIC_KEY
+```
+
+현재 저장소 기본값은 이미 아래로 고정되어 있어, 파라미터 없이도 즉시 빌드 가능합니다.
+
+- `ServerDomain=housingnewshub.info`
+- `ServerRelay=housingnewshub.info:21117`
+- `ServerPubKey=0u96kmcWNHhHqeVeZk8MhQG7iiAhQzRlJ8cpmu7GzFI=`
+
+```powershell
+iscc .\installer\setup.iss
+```
+
+#### 산출물 배치 규칙
+
+- RustDesk 빌드 산출 exe를 `client-fork/dist/rustdesk.exe`로 복사
+- 이후 `iscc installer/setup.iss` 실행 시 설치 파일 생성
+
+#### 주의
+
+- 방화벽 규칙 자동 등록은 로컬 OS 범위입니다.
+- 공유기 포트포워딩은 자동화하지 않고 안내 링크로 유도합니다(보안/관리 권한 이슈).
+
 ### 방법 B: flutter_distributor
 1. `flutter_distributor` 설정 파일 작성
 2. 채널/아키텍처 지정
