@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  role      Role     @default(OPERATOR)
+  createdAt DateTime @default(now())
+}
+
+model DeviceMeta {
+  id         String   @id @default(cuid())
+  rustdeskId String   @unique
+  alias      String?
+  ownerEmail String?
+  tags       String[]
+  notes      String?
+  blocked    Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+}
+
+model AccessLog {
+  id           String   @id @default(cuid())
+  rustdeskId   String
+  remoteIp     String?
+  startedAt    DateTime
+  endedAt      DateTime?
+  bytesRelayed BigInt   @default(0)
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  adminEmail String
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+}
+
+enum Role {
+  ADMIN
+  OPERATOR
+}

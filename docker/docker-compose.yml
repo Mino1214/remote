@@ -1,0 +1,125 @@
+services:
+  hbbs:
+    image: rustdesk/rustdesk-server:latest
+    command: hbbs
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      RELAY: hbbr:21117
+      ENCRYPTED_ONLY: "1"
+    ports:
+      - "21115:21115/tcp"
+      - "21116:21116/tcp"
+      - "21116:21116/udp"
+      - "21118:21118/tcp"
+    volumes:
+      - hbbs_data:/root
+    networks:
+      - rustdesk_net
+
+  hbbr:
+    image: rustdesk/rustdesk-server:latest
+    command: hbbr
+    restart: unless-stopped
+    ports:
+      - "21117:21117/tcp"
+      - "21119:21119/tcp"
+    volumes:
+      - hbbr_data:/root
+    networks:
+      - rustdesk_net
+
+  rustdesk-api:
+    image: lejianwen/rustdesk-api:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: UTC
+      PORT: 21114
+      API_KEY: ${RUSTDESK_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      RUSTDESK_API_KEY: ${RUSTDESK_API_KEY}
+    expose:
+      - "21114"
+    volumes:
+      - hbbs_data:/data:ro
+    depends_on:
+      - hbbs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:21114 >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - rustdesk_net
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - rustdesk_net
+
+  dashboard:
+    build:
+      context: ../dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: ${DATABASE_URL}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      RUSTDESK_API_BASE_URL: http://rustdesk-api:21114
+      RUSTDESK_API_KEY: ${RUSTDESK_API_KEY}
+      RUSTDESK_DOMAIN: ${RUSTDESK_DOMAIN}
+      ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD}
+      CLIENT_DOWNLOAD_URL: https://github.com/rustdesk/rustdesk/releases
+      DASHBOARD_IP_ALLOWLIST: ${DASHBOARD_IP_ALLOWLIST}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX}
+      AUTH_RATE_LIMIT_WINDOW_MS: ${AUTH_RATE_LIMIT_WINDOW_MS}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustdesk-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:3000/login >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    networks:
+      - rustdesk_net
+
+networks:
+  rustdesk_net:
+    driver: bridge
+
+volumes:
+  hbbs_data:
+  hbbr_data:
+  postgres_data:

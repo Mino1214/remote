@@ -1,0 +1,3 @@
+rendezvous-server=${RUSTDESK_DOMAIN}
+api-server=https://${RUSTDESK_DOMAIN}:21114
+key=<hbbs-public-key>
