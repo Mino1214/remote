@@ -7,7 +7,7 @@ const handler = NextAuth(authOptions);
 
 export { handler as GET };
 
-export async function POST(request: Request) {
+export async function POST(request: Request, context: { params: { nextauth: string[] } }) {
   const forwardedFor = request.headers.get("x-forwarded-for");
   const realIp = request.headers.get("x-real-ip");
   const ip = (forwardedFor?.split(",")[0] || realIp || "unknown").trim();
@@ -35,5 +35,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return handler(request);
+  return handler(request, context);
 }
