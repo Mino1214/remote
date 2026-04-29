@@ -33,6 +33,7 @@ function isAllowedIp(request: NextRequest) {
  * - /api/streams/play/{streamKey}/{file}   : 시청자가 단명 HMAC 토큰으로 HLS GET.
  */
 function isStreamingAgentEndpoint(pathname: string): boolean {
+  if (pathname === "/api/agent/provision") return true;
   if (/^\/api\/streams\/[^/]+\/(consent|pause|resume)$/.test(pathname)) return true;
   if (/^\/api\/streams\/ingest\/[^/]+\/[^/]+$/.test(pathname)) return true;
   if (/^\/api\/streams\/play\/[^/]+\/[^/]+$/.test(pathname)) return true;
