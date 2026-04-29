@@ -93,3 +93,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }
 }
+
+export async function DELETE() {
+  try {
+    const session = await requireServerSession();
+    const deleted = await prisma.stream.deleteMany({});
+
+    await writeAuditLog({
+      adminEmail: session.user.email || "unknown",
+      action: "streams_deleted_all",
+      targetType: "Stream",
+      metadata: { count: deleted.count }
+    });
+
+    return NextResponse.json({ data: { deletedCount: deleted.count } });
+  } catch (error) {
+    if (error instanceof Error && error.message === "UNAUTHORIZED") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Failed" }, { status: 500 });
+  }
+}
