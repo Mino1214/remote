@@ -29,25 +29,38 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $ConfigSource) { $ConfigSource = Join-Path $here 'agent-config.json' }
-if (-not (Test-Path $ConfigSource)) {
-  throw "agent-config.json이 없습니다. agent-config.example.json을 복사해 채워두세요."
-}
 
 if (-not (Test-Path $InstallDir)) {
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 }
 
-$files = @(
-  'Start-StreamAgent.ps1',
-  'Show-ConsentDialog.ps1',
-  'Invoke-Capture.ps1',
-  'Set-StreamPause.ps1',
-  'README.md'
-)
-foreach ($f in $files) {
-  Copy-Item -Path (Join-Path $here $f) -Destination $InstallDir -Force
+$hereFull = (Resolve-Path $here).Path.TrimEnd('\')
+$installFull = (Resolve-Path $InstallDir).Path.TrimEnd('\')
+$sameDir = ($hereFull -ieq $installFull)
+
+if ($sameDir) {
+  Write-Host "install.ps1: 이미 설치 폴더에서 실행 중. 파일 복사 단계 건너뜀."
+} else {
+  if (-not (Test-Path $ConfigSource)) {
+    throw "agent-config.json이 없습니다. agent-config.example.json을 복사해 채워두세요."
+  }
+
+  $files = @(
+    'Start-StreamAgent.ps1',
+    'Show-ConsentDialog.ps1',
+    'Invoke-Capture.ps1',
+    'Set-StreamPause.ps1',
+    'README.md'
+  )
+  foreach ($f in $files) {
+    Copy-Item -Path (Join-Path $here $f) -Destination $InstallDir -Force
+  }
+  Copy-Item -Path $ConfigSource -Destination (Join-Path $InstallDir 'agent-config.json') -Force
 }
-Copy-Item -Path $ConfigSource -Destination (Join-Path $InstallDir 'agent-config.json') -Force
+
+if (-not (Test-Path (Join-Path $InstallDir 'agent-config.json'))) {
+  throw "agent-config.json이 설치 디렉토리에 없습니다: $InstallDir"
+}
 
 # config의 ffmpegPath 확인
 $config = Get-Content (Join-Path $InstallDir 'agent-config.json') -Raw | ConvertFrom-Json
