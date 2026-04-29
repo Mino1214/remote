@@ -1,8 +1,8 @@
-.next
 node_modules
-.env
-.env.local
+.next
+out
 dist
-coverage
 *.log
-prisma/dev.db
+.env.local
+.env.production
+tsconfig.tsbuildinfo

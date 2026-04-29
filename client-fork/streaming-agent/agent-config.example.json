@@ -1,0 +1,31 @@
+{
+  "_comment": "이 파일을 agent-config.json으로 복사하고 운영 환경에 맞게 채워 사용. 비밀값(ingestSecret) 노출 주의.",
+
+  "dashboardBase": "https://admin.housingnewshub.info",
+  "_dashboardBase_help": "스트림 동의/일시정지/재개 API를 호출할 dashboard 베이스 URL. https 권장.",
+
+  "streamId": "REPLACE_WITH_STREAM_ID",
+  "_streamId_help": "dashboard에서 스트림 등록 시 발급되는 cuid.",
+
+  "ingestSecret": "REPLACE_WITH_INGEST_SECRET",
+  "_ingestSecret_help": "스트림 등록 응답에서 한 번만 표시되는 비밀값. base64url 24바이트.",
+
+  "streamKey": "REPLACE_WITH_STREAM_KEY",
+  "_streamKey_help": "스트림 등록 응답의 streamKey. RTMP path로 사용.",
+
+  "mediamtxRtmp": "rtmp://relay.housingnewshub.info:1935",
+  "_mediamtxRtmp_help": "MediaMTX RTMP ingest endpoint. 외부망에서는 공유기 1935/tcp 포워딩 필요.",
+
+  "watermarkText": "● REC | 관리자 모니터링 활성화",
+  "_watermarkText_help": "ffmpeg drawtext로 송출 스트림에 박히는 워터마크 문구.",
+
+  "captureFramerate": 10,
+  "captureBitrateKbps": 1500,
+  "captureWidthMax": 1920,
+
+  "_safety_lock": "이 4개 옵션은 false로 바꿀 수 없음. 안전선 위반.",
+  "showTrayIcon": true,
+  "showOnScreenIndicator": true,
+  "allowUserPause": true,
+  "allowUserRevoke": true
+}

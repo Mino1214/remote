@@ -24,6 +24,7 @@ model DeviceMeta {
   notes      String?
   blocked    Boolean  @default(false)
   updatedAt  DateTime @updatedAt
+  streams    Stream[]
 }
 
 model AccessLog {
@@ -43,6 +44,71 @@ model AuditLog {
   targetId   String?
   metadata   Json?
   createdAt  DateTime @default(now())
+}
+
+// 모니터링 스트림 등록 단위. 한 디바이스가 여러 스트림(주화면/보조화면)을 가질 수 있음.
+// `consentAcceptedAt`이 null인 스트림은 ingest를 거부한다 (사용자 동의 없는 스트리밍 차단).
+model Stream {
+  id                  String          @id @default(cuid())
+  deviceId            String
+  streamKey           String          @unique
+  ingestSecretHash    String
+  displayName         String?
+  status              StreamStatus    @default(PENDING)
+  consentAcceptedAt   DateTime?
+  consentAcceptedBy   String?
+  watermarkText       String?
+  retentionDays       Int             @default(7)
+  pausedAt            DateTime?
+  pausedReason        String?
+  lastSeenAt          DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  device              DeviceMeta      @relation(fields: [deviceId], references: [rustdeskId], onDelete: Cascade)
+  sessions            StreamSession[]
+  recordings          StreamRecording[]
+
+  @@index([deviceId])
+  @@index([status])
+}
+
+model StreamSession {
+  id              String    @id @default(cuid())
+  streamId        String
+  agentVersion    String?
+  agentHostname   String?
+  remoteIp        String?
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  bytesIngested   BigInt    @default(0)
+  pauseCount      Int       @default(0)
+  endReason       String?
+  stream          Stream    @relation(fields: [streamId], references: [id], onDelete: Cascade)
+
+  @@index([streamId])
+  @@index([startedAt])
+}
+
+model StreamRecording {
+  id          String    @id @default(cuid())
+  streamId    String
+  filePath    String
+  startedAt   DateTime
+  endedAt     DateTime?
+  durationMs  Int?
+  sizeBytes   BigInt?
+  deletedAt   DateTime?
+  stream      Stream    @relation(fields: [streamId], references: [id], onDelete: Cascade)
+
+  @@index([streamId])
+  @@index([startedAt])
+}
+
+enum StreamStatus {
+  PENDING       // 동의 대기 (서버에 등록만 됨)
+  ACTIVE        // 동의 완료, ingest 허용
+  PAUSED        // 사용자가 트레이에서 일시정지
+  REVOKED       // 동의 철회 또는 관리자 차단
 }
 
 enum Role {

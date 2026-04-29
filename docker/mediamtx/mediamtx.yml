@@ -1,0 +1,72 @@
+# MediaMTX (formerly rtsp-simple-server) configuration
+#
+# Role: 모니터링 스트림 게이트웨이.
+# - 클라이언트 streaming-agent → RTMP push (인증 필수, dashboard API가 검증)
+# - 관리자 브라우저 → HLS playback (dashboard 세션 토큰으로 보호)
+# - mp4 자동 녹화 (보존기간은 dashboard에서 정책으로 관리)
+
+logLevel: info
+logDestinations: [stdout]
+
+# MediaMTX 자체 API (관리/디버그용, 기본 외부 노출 금지)
+api: yes
+apiAddress: :9997
+
+# 메트릭 (옵션)
+metrics: yes
+metricsAddress: :9998
+
+# 모든 publish/read 요청에 대해 dashboard로 인증 콜백을 친다.
+# dashboard가 200을 주면 통과, 그 외 코드면 거부.
+authMethod: http
+authHTTPAddress: http://dashboard:3000/api/streams/auth
+authHTTPExclude: []
+
+###############################
+# RTMP ingest (agent → server)
+###############################
+rtmp: yes
+rtmpAddress: :1935
+# 외부 직접 노출 안 함. cloudflared로 별도 호스트네임 만들지 않을 것.
+# Windows agent는 직접 LAN/WAN으로 RTMP 푸시.
+
+###############################
+# HLS egress (browser playback)
+###############################
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsAllowOrigin: '*'
+
+###############################
+# WebRTC egress (옵션)
+###############################
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigin: '*'
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+
+# RTSP 끄기 (사용 안 함, 공격면 축소)
+rtsp: no
+srt: no
+
+###############################
+# Per-path defaults
+###############################
+pathDefaults:
+  # 24/7 녹화 - mediamtx가 자체 mp4 분할 (시간단위 segment)
+  record: yes
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordSegmentDuration: 10m
+  recordDeleteAfter: 168h  # 7d default; dashboard 정책으로 별도 청소 권장
+
+paths:
+  # 모든 path는 dashboard 인증 콜백을 거쳐 동적으로 허용/거부됨.
+  # 하드코딩된 path 정의는 두지 않는다. 등록되지 않은 deviceId는 자동 거부.
+  all_others:
