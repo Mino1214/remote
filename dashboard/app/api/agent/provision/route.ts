@@ -81,6 +81,8 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Invalid payload", issues: error.issues }, { status: 400 });
     }
-    return NextResponse.json({ error: "Failed" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[agent/provision] failed", error);
+    return NextResponse.json({ error: "Failed", detail: message }, { status: 500 });
   }
 }

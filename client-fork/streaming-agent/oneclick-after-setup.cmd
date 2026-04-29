@@ -2,6 +2,13 @@
 setlocal
 cd /d "%~dp0"
 
+net session >nul 2>&1
+if not "%errorlevel%"=="0" (
+  echo [INFO] 관리자 권한으로 재실행합니다...
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  exit /b
+)
+
 set "SETUP_EXE=%~dp0streammonitor-agent-setup.exe"
 set "DASHBOARD_BASE=https://admin.housingnewshub.info"
 set "TOKEN_FILE=%~dp0provision-token.txt"

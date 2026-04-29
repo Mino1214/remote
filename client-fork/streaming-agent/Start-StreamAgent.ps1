@@ -23,19 +23,51 @@ param(
   [string]$ConfigPath
 )
 
-#region init
 $ErrorActionPreference = 'Stop'
+
+$logDir = Join-Path $env:PROGRAMDATA 'StreamMonitor'
+if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
+$logFile = Join-Path $logDir 'agent.log'
+
+function Write-Log([string]$msg) {
+  try {
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg"
+    Add-Content -Path $logFile -Value $line -Encoding UTF8
+  } catch {}
+}
+
+function ValueOrDefault($value, $defaultValue) {
+  if ($null -eq $value -or ($value -is [string] -and [string]::IsNullOrWhiteSpace($value))) {
+    return $defaultValue
+  }
+  return $value
+}
+
+trap {
+  Write-Log "FATAL: $($_.Exception.Message)"
+  Write-Log "STACK: $($_.ScriptStackTrace)"
+  exit 99
+}
+
+Write-Log "agent boot: pid=$PID userdomain=$env:USERDOMAIN user=$env:USERNAME"
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $ConfigPath) { $ConfigPath = Join-Path $scriptDir 'agent-config.json' }
-if (-not (Test-Path $ConfigPath)) { throw "Config not found: $ConfigPath" }
+if (-not (Test-Path $ConfigPath)) {
+  Write-Log "Config not found: $ConfigPath"
+  throw "Config not found: $ConfigPath"
+}
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 
 . (Join-Path $scriptDir 'Set-StreamPause.ps1')
 
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 
-# 안전선: 4개 옵션은 false 강제 거부
 foreach ($must in @('showTrayIcon','showOnScreenIndicator','allowUserPause','allowUserRevoke')) {
   if ($config.$must -ne $true) {
+    Write-Log "Safety violation: '$must' must be true"
     [System.Windows.Forms.MessageBox]::Show(
       "안전선 위반: '$must'은 true여야 합니다. agent-config.json을 확인하세요.",
       "Stream Agent",
@@ -46,26 +78,27 @@ foreach ($must in @('showTrayIcon','showOnScreenIndicator','allowUserPause','all
   }
 }
 
-$logDir = Join-Path $env:PROGRAMDATA 'StreamMonitor'
-if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
-$logFile = Join-Path $logDir 'agent.log'
-$consentFlag = Join-Path $logDir "consent-$($config.streamId).json"
-
-function Write-Log([string]$msg) {
-  $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg"
-  Add-Content -Path $logFile -Value $line
+foreach ($req in @('dashboardBase','streamId','streamKey','ingestSecret')) {
+  if ([string]::IsNullOrWhiteSpace([string]$config.$req)) {
+    Write-Log "Config missing required field: $req"
+    [System.Windows.Forms.MessageBox]::Show(
+      "agent-config.json의 '$req' 값이 비어 있습니다.",
+      "Stream Agent",
+      [System.Windows.Forms.MessageBoxButtons]::OK,
+      [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+    exit 4
+  }
 }
 
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-#endregion
+$consentFlag = Join-Path $logDir "consent-$($config.streamId).json"
 
 #region consent
 if (-not (Test-Path $consentFlag)) {
   Write-Log "No local consent flag; showing consent dialog"
   $consent = & (Join-Path $scriptDir 'Show-ConsentDialog.ps1') `
     -DeviceLabel $env:COMPUTERNAME `
-    -AdminContact ($config.adminContact ?? "관리자") `
+    -AdminContact (ValueOrDefault $config.adminContact "관리자") `
     -WatermarkText $config.watermarkText
 
   if (-not $consent.accepted) {
@@ -184,8 +217,8 @@ function Start-Capture {
     -WatermarkText $config.watermarkText `
     -Framerate $config.captureFramerate `
     -BitrateKbps $config.captureBitrateKbps `
-    -SegmentSeconds ($config.segmentSeconds ?? 2) `
-    -PlaylistSize ($config.playlistSize ?? 6)
+    -SegmentSeconds (ValueOrDefault $config.segmentSeconds 2) `
+    -PlaylistSize (ValueOrDefault $config.playlistSize 6)
   Write-Log "ffmpeg started pid=$($script:ffmpegProc.Id) ingest=$ingestBase"
 }
 
