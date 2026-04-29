@@ -1,12 +1,13 @@
 ; StreamMonitor Agent — Inno Setup 스크립트
 ;
-; iscc setup.iss /DAgentVersion=0.1.0 /DDashboardBase=https://admin.housingnewshub.info \
-;                /DStreamId=cuid /DIngestSecret=base64url /DStreamKey=s_xxx \
-;                /DRtmpBase=rtmp://relay.housingnewshub.info:1935 \
+; iscc setup.iss /DAgentVersion=0.1.0 \
+;                /DDashboardBase=https://admin.housingnewshub.info \
+;                /DStreamId=cuid /DStreamKey=s_xxx /DIngestSecret=base64url \
 ;                /DAdminContact=admin@example.com
 ;
 ; 주의:
-; - 안전선(동의 다이얼로그/REC 워터마크/일시정지)은 PowerShell 측에 박혀 있으므로 setup이 비활성화할 수 없음.
+; - 모든 트래픽이 표준 HTTPS이므로 어느 쪽도 포트포워딩 불필요.
+; - 안전선(동의 다이얼로그/REC 워터마크/일시정지)은 PowerShell 측에 박혀 있어 setup이 비활성화 못함.
 ; - LocalSystem 서비스로 등록하지 않음. ONLOGON Task Scheduler만 등록.
 
 #define MyAppName "StreamMonitor Agent"
@@ -24,9 +25,6 @@
 #endif
 #ifndef StreamKey
   #define StreamKey "REPLACE_WITH_STREAM_KEY"
-#endif
-#ifndef RtmpBase
-  #define RtmpBase "rtmp://relay.example.com:1935"
 #endif
 #ifndef AdminContact
   #define AdminContact "admin@example.com"
@@ -69,14 +67,14 @@ Filename: "powershell.exe"; \
 $cfg = @{{}}; \
 $cfg.dashboardBase = '{#DashboardBase}'; \
 $cfg.streamId = '{#StreamId}'; \
-$cfg.ingestSecret = '{#IngestSecret}'; \
 $cfg.streamKey = '{#StreamKey}'; \
-$cfg.mediamtxRtmp = '{#RtmpBase}'; \
+$cfg.ingestSecret = '{#IngestSecret}'; \
 $cfg.adminContact = '{#AdminContact}'; \
 $cfg.watermarkText = '{#WatermarkText}'; \
 $cfg.captureFramerate = 10; \
 $cfg.captureBitrateKbps = 1500; \
-$cfg.captureWidthMax = 1920; \
+$cfg.segmentSeconds = 2; \
+$cfg.playlistSize = 6; \
 $cfg.showTrayIcon = $true; \
 $cfg.showOnScreenIndicator = $true; \
 $cfg.allowUserPause = $true; \

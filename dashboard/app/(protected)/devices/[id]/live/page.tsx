@@ -60,8 +60,7 @@ export default async function DeviceLivePage({
   // 서버사이드에서 첫 토큰 발급해 즉시 재생 가능하게 한다.
   // (이후 만료 시 클라이언트가 /playback-token API로 갱신)
   const { token, exp } = issuePlaybackToken(active.streamKey, "server-render");
-  const hlsBase = process.env.STREAM_PLAYBACK_HLS_BASE || "http://localhost:8888";
-  const hlsUrl = `${hlsBase.replace(/\/+$/, "")}/${active.streamKey}/index.m3u8?token=${encodeURIComponent(token)}`;
+  const hlsUrl = `/api/streams/play/${active.streamKey}/index.m3u8?token=${encodeURIComponent(token)}`;
 
   return (
     <div className="space-y-6">

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import path from "node:path";
 
 /**
  * Streaming subsystem helpers.
@@ -81,19 +82,36 @@ export function verifyPlaybackToken(token: string): PlaybackTokenPayload | null 
   }
 }
 
-export function isTrustedAuthCallback(remoteHost: string | undefined | null): boolean {
-  if (!remoteHost) return false;
-  const trusted = (process.env.STREAM_AUTH_TRUSTED_HOSTS || "mediamtx")
-    .split(",")
-    .map((h) => h.trim())
-    .filter(Boolean);
-  return trusted.some((h) => remoteHost === h || remoteHost.startsWith(`${h}:`) || remoteHost.startsWith(`${h}.`));
-}
-
 export function getDefaultWatermark(): string {
   return process.env.STREAM_WATERMARK_DEFAULT || "● REC | 관리자 모니터링 활성화";
 }
 
 export function getDefaultRetentionDays(): number {
   return Number(process.env.STREAM_RECORDINGS_DEFAULT_RETENTION_DAYS || "7");
+}
+
+export function getStreamDataDir(): string {
+  return process.env.STREAM_DATA_DIR || "/var/streams";
+}
+
+/**
+ * 스트림 디렉토리 + 안전 파일 경로 계산.
+ * 핵심: streamKey와 fileName 모두 화이트리스트로 검증해 path traversal 차단.
+ */
+const SAFE_FILENAME_RE = /^[A-Za-z0-9_-]+\.(m3u8|ts|mp4|m4s|vtt)$/;
+const SAFE_STREAMKEY_RE = /^s_[a-f0-9]{8,64}$/;
+
+export function resolveStreamFile(streamKey: string, fileName: string): string | null {
+  if (!SAFE_STREAMKEY_RE.test(streamKey)) return null;
+  if (!SAFE_FILENAME_RE.test(fileName)) return null;
+  const baseDir = path.resolve(getStreamDataDir(), streamKey);
+  const target = path.resolve(baseDir, fileName);
+  // path traversal 가드: target이 baseDir로 시작하지 않으면 거부.
+  if (!target.startsWith(baseDir + path.sep) && target !== baseDir) return null;
+  return target;
+}
+
+export function streamDir(streamKey: string): string | null {
+  if (!SAFE_STREAMKEY_RE.test(streamKey)) return null;
+  return path.resolve(getStreamDataDir(), streamKey);
 }

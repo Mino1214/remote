@@ -7,12 +7,12 @@ import { writeAuditLog } from "@/lib/audit";
 /**
  * GET /api/streams/{id}/playback-token
  *
- * 로그인한 관리자만 호출 가능. 단명 HMAC 토큰을 발급해 HLS URL의 query string에 끼워준다.
- * MediaMTX는 read 시점에 /api/streams/auth 콜백으로 토큰을 검증한다.
+ * 로그인한 관리자만 호출. 단명 HMAC 토큰을 발급해 dashboard 내부 HLS 경로의
+ * query string에 끼워준다 (`/api/streams/play/{streamKey}/index.m3u8?token=...`).
  *
  * 안전선:
- * - 토큰에는 viewer 이메일이 포함되어 audit log로 누가 봤는지 추적 가능.
- * - 토큰 자체는 stateless이지만 streamKey/만료/사용자가 모두 HMAC에 묶여있어 위조/재사용 차단.
+ * - 토큰에 viewer 이메일이 들어가 audit log로 누가 봤는지 추적 가능.
+ * - 토큰은 streamKey/만료/사용자에 묶여 위조/재사용 불가.
  */
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
@@ -36,14 +36,15 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       metadata: { exp }
     });
 
-    const hlsBase = process.env.STREAM_PLAYBACK_HLS_BASE || "http://localhost:8888";
+    // 같은 dashboard origin에서 서빙하므로 상대 경로로 충분.
+    const hlsUrl = `/api/streams/play/${stream.streamKey}/index.m3u8?token=${encodeURIComponent(token)}`;
+
     return NextResponse.json({
       data: {
         streamKey: stream.streamKey,
         token,
         exp,
-        hlsUrl: `${hlsBase.replace(/\/+$/, "")}/${stream.streamKey}/index.m3u8?token=${encodeURIComponent(token)}`,
-        webrtcWhepUrl: `${hlsBase.replace(/8888/, "8889").replace(/\/+$/, "")}/${stream.streamKey}/whep?token=${encodeURIComponent(token)}`,
+        hlsUrl,
         watermarkText: stream.watermarkText
       }
     });

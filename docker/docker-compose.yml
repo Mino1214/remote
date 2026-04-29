@@ -99,15 +99,16 @@ services:
       DASHBOARD_IP_ALLOWLIST: ${DASHBOARD_IP_ALLOWLIST}
       AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX}
       AUTH_RATE_LIMIT_WINDOW_MS: ${AUTH_RATE_LIMIT_WINDOW_MS}
-      STREAM_INGEST_SHARED_SECRET: ${STREAM_INGEST_SHARED_SECRET}
       STREAM_PLAYBACK_TOKEN_SECRET: ${STREAM_PLAYBACK_TOKEN_SECRET}
       STREAM_PLAYBACK_TOKEN_TTL: ${STREAM_PLAYBACK_TOKEN_TTL}
-      STREAM_AUTH_TRUSTED_HOSTS: ${STREAM_AUTH_TRUSTED_HOSTS}
       STREAM_RECORDINGS_DEFAULT_RETENTION_DAYS: ${STREAM_RECORDINGS_DEFAULT_RETENTION_DAYS}
-      STREAM_PLAYBACK_HLS_BASE: ${STREAM_PLAYBACK_HLS_BASE}
+      STREAM_PUBLIC_BASE: ${STREAM_PUBLIC_BASE}
+      STREAM_DATA_DIR: /var/streams
       STREAM_WATERMARK_DEFAULT: ${STREAM_WATERMARK_DEFAULT}
     ports:
       - "3010:3000"
+    volumes:
+      - streams_data:/var/streams
     depends_on:
       postgres:
         condition: service_healthy
@@ -122,28 +123,6 @@ services:
     networks:
       - rustdesk_net
 
-  mediamtx:
-    image: bluenviron/mediamtx:latest
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      MTX_LOGLEVEL: info
-    ports:
-      - "1935:1935/tcp"   # RTMP ingest (agent push)
-      - "8888:8888/tcp"   # HLS playback (browser pull, fronted by dashboard auth)
-      - "8889:8889/tcp"   # WebRTC signaling
-      - "8189:8189/udp"   # WebRTC media (optional)
-      # 9997/9998 (api/metrics)는 외부 노출 안 함. 내부 네트워크에서만 접근.
-    volumes:
-      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
-      - mediamtx_recordings:/recordings
-    depends_on:
-      dashboard:
-        condition: service_healthy
-    networks:
-      - rustdesk_net
-
 networks:
   rustdesk_net:
     driver: bridge
@@ -152,4 +131,4 @@ volumes:
   hbbs_data:
   hbbr_data:
   postgres_data:
-  mediamtx_recordings:
+  streams_data:

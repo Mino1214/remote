@@ -176,14 +176,17 @@ function Stop-Capture {
 
 function Start-Capture {
   if ($state.Paused -or $state.Revoked) { return }
-  $rtmpUrl = "$($config.mediamtxRtmp.TrimEnd('/'))/$($config.streamKey)?secret=$([uri]::EscapeDataString($config.ingestSecret))"
+  $ingestBase = "$($config.dashboardBase.TrimEnd('/'))/api/streams/ingest/$($config.streamKey)"
   $script:ffmpegProc = & (Join-Path $scriptDir 'Invoke-Capture.ps1') `
     -FfmpegPath $config.ffmpegPath `
-    -RtmpUrl $rtmpUrl `
+    -IngestBaseUrl $ingestBase `
+    -IngestSecret $config.ingestSecret `
     -WatermarkText $config.watermarkText `
     -Framerate $config.captureFramerate `
-    -BitrateKbps $config.captureBitrateKbps
-  Write-Log "ffmpeg started pid=$($script:ffmpegProc.Id)"
+    -BitrateKbps $config.captureBitrateKbps `
+    -SegmentSeconds ($config.segmentSeconds ?? 2) `
+    -PlaylistSize ($config.playlistSize ?? 6)
+  Write-Log "ffmpeg started pid=$($script:ffmpegProc.Id) ingest=$ingestBase"
 }
 
 $miPause.Add_Click({

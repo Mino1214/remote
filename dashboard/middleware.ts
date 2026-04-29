@@ -25,18 +25,18 @@ function isAllowedIp(request: NextRequest) {
 }
 
 /**
- * Streaming subsystem 공개 엔드포인트.
- * - /api/streams/auth          : MediaMTX 인증 콜백 (내부에서 source 호스트 검증).
- * - /api/streams/{id}/consent  : agent가 ingestSecret으로 동의 확정.
- * - /api/streams/{id}/pause    : agent가 ingestSecret으로 일시정지.
- * - /api/streams/{id}/resume   : agent가 ingestSecret으로 재개.
- * 이들은 NextAuth 세션을 요구하지 않는다(요구할 수 없다). 각 엔드포인트는 자체 인증을 한다.
+ * Streaming subsystem 공개 엔드포인트 (NextAuth 세션 불필요).
+ * - /api/streams/{id}/consent             : agent가 ingestSecret으로 동의 확정.
+ * - /api/streams/{id}/pause                : agent가 ingestSecret으로 일시정지.
+ * - /api/streams/{id}/resume               : agent가 ingestSecret으로 재개.
+ * - /api/streams/ingest/{streamKey}/{file} : agent가 Bearer ingestSecret으로 HLS chunk PUT.
+ * - /api/streams/play/{streamKey}/{file}   : 시청자가 단명 HMAC 토큰으로 HLS GET.
  */
 function isStreamingAgentEndpoint(pathname: string): boolean {
-  if (pathname === "/api/streams/auth") return true;
-  // /api/streams/{id}/(consent|pause|resume)
-  const m = pathname.match(/^\/api\/streams\/[^/]+\/(consent|pause|resume)$/);
-  return Boolean(m);
+  if (/^\/api\/streams\/[^/]+\/(consent|pause|resume)$/.test(pathname)) return true;
+  if (/^\/api\/streams\/ingest\/[^/]+\/[^/]+$/.test(pathname)) return true;
+  if (/^\/api\/streams\/play\/[^/]+\/[^/]+$/.test(pathname)) return true;
+  return false;
 }
 
 export async function middleware(request: NextRequest) {
