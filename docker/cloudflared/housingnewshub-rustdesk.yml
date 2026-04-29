@@ -1,0 +1,25 @@
+# cloudflared 로컬 매니지드 터널 설정 (운영 사본)
+#
+# 설치 위치: ~/.cloudflared/housingnewshub-rustdesk.yml
+# 실행:      cloudflared --config ~/.cloudflared/housingnewshub-rustdesk.yml \
+#               tunnel run housingnewshub-rustdesk
+#
+# 주의:
+# - credentials-file 경로는 호스트별 절대경로이므로 배포 환경에 맞게 조정
+# - 자격증명 파일(<UUID>.json)은 절대 커밋하지 말 것
+# - 로컬 config 파일을 사용하면 Cloudflare Dashboard의 Public Hostname
+#   설정은 모두 무시되므로 ingress는 이 파일에서만 관리
+# - HTTP(S) 라우팅 전용. RustDesk hbbs/hbbr(21115/16/17) 같은 raw TCP/UDP는
+#   Cloudflare Tunnel로 보낼 수 없으므로 공유기 포트포워딩으로 별도 노출
+
+tunnel: 10dda781-c1fb-4144-9504-c176a5c4640d
+credentials-file: /Users/myno/.cloudflared/10dda781-c1fb-4144-9504-c176a5c4640d.json
+
+ingress:
+  - hostname: housingnewshub.info
+    service: http://127.0.0.1:3010
+  - hostname: admin.housingnewshub.info
+    service: http://127.0.0.1:3010
+  - hostname: rd.housingnewshub.info
+    service: http://127.0.0.1:21118
+  - service: http_status:404
