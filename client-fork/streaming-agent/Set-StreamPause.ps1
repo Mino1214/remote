@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   dashboard 의 pause / resume / consent 엔드포인트를 호출하는 헬퍼.
 #>

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Streaming Agent 제거. 관리자 권한 필요.
 #>

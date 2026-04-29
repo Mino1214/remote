@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Streaming Agent 설치/등록. 관리자 권한 필요.
 

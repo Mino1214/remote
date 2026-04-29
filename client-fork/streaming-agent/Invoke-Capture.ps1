@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   ffmpeg를 외부 프로세스로 띄워 화면 캡처 + REC 워터마크 + HLS HTTP PUT.
 

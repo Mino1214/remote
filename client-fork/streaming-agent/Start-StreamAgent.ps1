@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Streaming Agent 메인 엔트리. 트레이 + 항상위 REC 인디케이터 + ffmpeg 슈퍼바이저.
 

@@ -1,9 +1,14 @@
 ; StreamMonitor Agent — Inno Setup 스크립트
 ;
-; iscc setup.iss /DAgentVersion=0.1.0 \
-;                /DDashboardBase=https://admin.housingnewshub.info \
-;                /DStreamId=cuid /DStreamKey=s_xxx /DIngestSecret=base64url \
-;                /DAdminContact=admin@example.com
+; PowerShell build example (recommended):
+; & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" ".\setup.iss" `
+;   /DAgentVersion=0.1.0 `
+;   /DDashboardBase=https://admin.housingnewshub.info `
+;   /DStreamId=cuid /DStreamKey=s_xxx /DIngestSecret=base64url `
+;   /DAdminContact=admin@example.com
+;
+; One-line variant:
+; & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" ".\setup.iss" /DAgentVersion=0.1.0 /DDashboardBase=https://admin.housingnewshub.info /DStreamId=cuid /DStreamKey=s_xxx /DIngestSecret=base64url /DAdminContact=admin@example.com
 ;
 ; 주의:
 ; - 모든 트래픽이 표준 HTTPS이므로 어느 쪽도 포트포워딩 불필요.
@@ -61,6 +66,17 @@ Source: "uninstall.ps1";         DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md";             DestDir: "{app}"; Flags: ignoreversion
 
 [Run]
+; 0) PowerShell 5.1 호환을 위해 스크립트 인코딩(UTF-8 BOM) 보정
+Filename: "powershell.exe"; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""& {{ \
+$enc = New-Object System.Text.UTF8Encoding($true); \
+Get-ChildItem -Path '{app}' -Filter '*.ps1' -File | ForEach-Object {{ \
+  $txt = [System.IO.File]::ReadAllText($_.FullName); \
+  [System.IO.File]::WriteAllText($_.FullName, $txt, $enc); \
+}}; \
+}}"""; \
+  Flags: runhidden waituntilterminated
+
 ; 1) agent-config.json 자동 생성 (빌드 시 주입된 값으로)
 Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""& {{ \
