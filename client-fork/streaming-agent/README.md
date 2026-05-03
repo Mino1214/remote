@@ -16,18 +16,31 @@
 3. **OS 권한 다이얼로그 정상 통과** — gdigrab는 사용자 데스크톱 권한만 사용. LocalSystem 서비스 미사용. 보안 SW 우회 절대 금지.
 4. **사용자 일시정지/철회 권한** — 트레이 메뉴에서 즉시 일시정지 또는 동의 철회. 관리자는 강제 재개 불가.
 
-## 구성
+## 구성 (v0.2 단일-exe 배포 모드)
 
 | 파일 | 역할 |
 |---|---|
-| `agent-config.example.json` | `streamId`, `streamKey`, `ingestSecret`, `dashboardBase` 등 |
+| `setup.iss` | Inno Setup 패키저 — generic `StreamMonitor-Setup.exe` 한 개를 만든다 |
+| `build-installer.ps1` | 한 줄 빌드 스크립트. ISCC 컴파일 + dashboard public/agent로 자동 배치 |
+| `oneclick-install-and-verify.ps1` | exe가 호출하는 메인 오케스트레이터 (프로비저닝/ffmpeg/Task Scheduler/에이전트 기동) |
 | `Start-StreamAgent.ps1` | 메인 엔트리. 트레이 + 항상위 REC + ffmpeg 슈퍼바이저 |
 | `Show-ConsentDialog.ps1` | 첫 실행 시 사용자 동의 다이얼로그 |
 | `Invoke-Capture.ps1` | ffmpeg gdigrab → drawtext → HLS chunked HTTP PUT |
 | `Set-StreamPause.ps1` | dashboard로 pause/resume/consent API 호출 |
-| `install.ps1` | 운영자용 1회 설치 (Task Scheduler 등록, ffmpeg 자동 다운로드) |
+| `install.ps1` | (구버전 호환용 보존 — 신규 배포는 oneclick-install-and-verify.ps1만 사용) |
 | `uninstall.ps1` | 제거 (스케줄러/파일/설정 모두 삭제) |
-| `setup.iss` | Inno Setup 패키저 (배포용 setup.exe 생성) |
+| `agent-config.example.json` | 참고용 샘플 (실제 값은 oneclick이 자동 생성/주입) |
+| `_legacy/` | 구버전 진입점 모음 (`oneclick-after-setup.cmd`, `install.vbs` 등) — 신규 배포에선 불필요 |
+
+### 단일 exe 배포 흐름 (신규)
+
+1. **개발자 PC에서 1회**: `.\build-installer.ps1` 실행 → `StreamMonitor-Setup.exe` 생성 후 `dashboard/public/agent/`에 자동 배치
+2. **dashboard `/devices`** 접속 → "**+ 새 PC 등록**" 클릭 → 별칭/소유자 입력 → 발급
+3. 브라우저가 자동으로 `StreamMonitor-Setup-tk_xxxxxxxx....exe` 를 다운로드
+4. 그 exe를 사용자 PC에 전달 → 더블클릭 → UAC 한 번 승인 → 끝
+5. 사용자에겐 콘솔 한 개도 안 뜨고, 설치 직후 화면에는 (config 따라) REC 워터마크/트레이 아이콘 표시
+
+토큰은 1회용. dashboard에서 `ProvisionToken` 상태가 `ACTIVE → USED`로 바뀐 시점에 어느 deviceId가 그 토큰을 소비했는지 추적됩니다.
 
 ## 의존성
 

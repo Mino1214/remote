@@ -17,11 +17,19 @@
 param(
   [Parameter(Mandatory=$true)] [string]$DeviceLabel,
   [Parameter(Mandatory=$true)] [string]$AdminContact,
-  [Parameter(Mandatory=$true)] [string]$WatermarkText
+  [Parameter(Mandatory=$true)] [string]$WatermarkText,
+  # 자동 동의 모드. true이면 다이얼로그를 띄우지 않고 즉시 accepted=true로 리턴.
+  # agent-config.json의 autoConsent 플래그가 true일 때만 호출자(Start-StreamAgent)가 이를 켠다.
+  # 자동 동의여도 안내문구의 SHA-256은 동일하게 계산해 서버 audit log에 박는다.
+  [switch]$AutoAccept,
+  [string]$AutoAcceptedBy = "auto-consent"
 )
 
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+# AutoAccept 모드에서는 Forms 어셈블리 로드 안 함 (Server Core나 Session 0에서도 동작 가능)
+if (-not $AutoAccept) {
+  Add-Type -AssemblyName System.Windows.Forms
+  Add-Type -AssemblyName System.Drawing
+}
 
 $notice = @"
 이 PC에서 다음 모니터링이 활성화됩니다.
@@ -61,6 +69,18 @@ $notice = @"
 
 위 내용을 모두 읽고 동의하십니까?
 "@
+
+if ($AutoAccept) {
+  # UI 없이 즉시 accepted 리턴. acceptedNoticeHash는 동일 알고리즘으로 계산해 audit 일관성 유지.
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($notice)
+  $hash = ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") }) -join ""
+  return [PSCustomObject]@{
+    accepted = $true
+    acceptedBy = $AutoAcceptedBy
+    acceptedNoticeHash = $hash
+  }
+}
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "화면 모니터링 동의"

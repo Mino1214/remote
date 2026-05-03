@@ -43,7 +43,25 @@ $manifestUrl = "$base/index.m3u8"
 $segPattern  = "$base/seg_%05d.ts"
 $authHeader = "Authorization: Bearer $IngestSecret`r`n"
 
-$args = @(
+# PowerShell 5.1(.NET Framework)는 ProcessStartInfo.ArgumentList를 지원하지 않으므로
+# 단일 문자열 Arguments에 정확한 Windows 인자 인용을 적용해서 넘긴다.
+# 규칙: CommandLineToArgvW 호환 — 공백/따옴표가 들어간 인자는 따옴표로 감싸고, 그 안의
+# backslash run은 따옴표 앞에서만 두 배로 escape, 따옴표는 \" 로 escape.
+function Convert-ToCmdArg([string]$s) {
+  if ($null -eq $s -or $s -eq '') { return '""' }
+  if ($s -notmatch '[\s"]') { return $s }
+  $escaped = [System.Text.RegularExpressions.Regex]::Replace(
+    $s, '(\\*)("|$)', { param($m)
+      $bs = $m.Groups[1].Value
+      $tail = $m.Groups[2].Value
+      if ($tail -eq '"') { return ($bs + $bs) + '\"' }
+      if ($tail -eq '') { return ($bs + $bs) }
+      return $m.Value
+    })
+  return '"' + $escaped + '"'
+}
+
+$ffArgs = @(
   '-hide_banner',
   '-loglevel', 'warning',
   '-f', 'gdigrab', '-framerate', "$Framerate", '-i', 'desktop',
@@ -70,17 +88,21 @@ $args = @(
   $manifestUrl
 )
 
-Write-Verbose "Launching: $FfmpegPath $($args -join ' ')"
+$argString = ($ffArgs | ForEach-Object { Convert-ToCmdArg $_ }) -join ' '
+Write-Verbose "Launching: $FfmpegPath $argString"
 
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = $FfmpegPath
-foreach ($a in $args) { [void]$psi.ArgumentList.Add($a) }
-$psi.UseShellExecute = $false
-$psi.RedirectStandardError = $true
-$psi.RedirectStandardOutput = $true
-$psi.CreateNoWindow = $true
+# ffmpeg stderr/stdout을 별도 로그 파일에 직접 떨어뜨려 진단을 용이하게 한다.
+# (ProcessStartInfo Redirect로 파이프를 잡아두면 PowerShell이 비우지 않을 때 데드락 가능)
+$ffmpegLogDir = Join-Path $env:PROGRAMDATA 'StreamMonitor'
+if (-not (Test-Path $ffmpegLogDir)) { New-Item -ItemType Directory -Force -Path $ffmpegLogDir | Out-Null }
+$ffmpegStdout = Join-Path $ffmpegLogDir 'ffmpeg-stdout.log'
+$ffmpegStderr = Join-Path $ffmpegLogDir 'ffmpeg-stderr.log'
 
-$p = New-Object System.Diagnostics.Process
-$p.StartInfo = $psi
-[void]$p.Start()
-return $p
+# Start-Process로 띄우고 stdout/stderr를 파일로 리다이렉트. PassThru로 Process 객체 반환.
+$proc = Start-Process -FilePath $FfmpegPath `
+  -ArgumentList $argString `
+  -RedirectStandardOutput $ffmpegStdout `
+  -RedirectStandardError $ffmpegStderr `
+  -WindowStyle Hidden `
+  -PassThru
+return $proc

@@ -65,7 +65,9 @@ Add-Type -AssemblyName System.Drawing
 
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 
-foreach ($must in @('showTrayIcon','showOnScreenIndicator','allowUserPause','allowUserRevoke')) {
+# showTrayIcon / showOnScreenIndicator 는 사용자 요청에 따라 숨길 수 있도록 안전선에서 분리.
+# 일시정지/철회 권한은 계속 강제.
+foreach ($must in @('allowUserPause','allowUserRevoke')) {
   if ($config.$must -ne $true) {
     Write-Log "Safety violation: '$must' must be true"
     [System.Windows.Forms.MessageBox]::Show(
@@ -95,11 +97,20 @@ $consentFlag = Join-Path $logDir "consent-$($config.streamId).json"
 
 #region consent
 if (-not (Test-Path $consentFlag)) {
-  Write-Log "No local consent flag; showing consent dialog"
-  $consent = & (Join-Path $scriptDir 'Show-ConsentDialog.ps1') `
-    -DeviceLabel $env:COMPUTERNAME `
-    -AdminContact (ValueOrDefault $config.adminContact "관리자") `
-    -WatermarkText $config.watermarkText
+  $autoConsent = ($config.autoConsent -eq $true)
+  $consentArgs = @{
+    DeviceLabel   = $env:COMPUTERNAME
+    AdminContact  = (ValueOrDefault $config.adminContact "관리자")
+    WatermarkText = $config.watermarkText
+  }
+  if ($autoConsent) {
+    Write-Log "autoConsent=true; bypassing user dialog"
+    $consentArgs['AutoAccept'] = $true
+    $consentArgs['AutoAcceptedBy'] = (ValueOrDefault $config.autoConsentBy ("auto-consent:" + $env:COMPUTERNAME))
+  } else {
+    Write-Log "No local consent flag; showing consent dialog"
+  }
+  $consent = & (Join-Path $scriptDir 'Show-ConsentDialog.ps1') @consentArgs
 
   if (-not $consent.accepted) {
     Write-Log "Consent rejected by user; exiting"
@@ -136,32 +147,36 @@ $state = [PSCustomObject]@{
   Stopping = $false
 }
 
-# 항상 위 REC 인디케이터 (작은 빨간 점 + 텍스트)
-$indicator = New-Object System.Windows.Forms.Form
-$indicator.FormBorderStyle = 'None'
-$indicator.TopMost = $true
-$indicator.ShowInTaskbar = $false
-$indicator.StartPosition = 'Manual'
-$indicator.BackColor = [System.Drawing.Color]::FromArgb(180, 0, 0)
-$indicator.Opacity = 0.85
-$indicator.Size = New-Object System.Drawing.Size(220, 28)
-$screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$indicator.Location = New-Object System.Drawing.Point(($screen.Right - 230), 8)
+# 항상 위 REC 인디케이터. config.showOnScreenIndicator=false면 생성 안 함.
+$indicator = $null
+$indicatorLabel = $null
+if ($config.showOnScreenIndicator -eq $true) {
+  $indicator = New-Object System.Windows.Forms.Form
+  $indicator.FormBorderStyle = 'None'
+  $indicator.TopMost = $true
+  $indicator.ShowInTaskbar = $false
+  $indicator.StartPosition = 'Manual'
+  $indicator.BackColor = [System.Drawing.Color]::FromArgb(180, 0, 0)
+  $indicator.Opacity = 0.85
+  $indicator.Size = New-Object System.Drawing.Size(220, 28)
+  $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+  $indicator.Location = New-Object System.Drawing.Point(($screen.Right - 230), 8)
 
-$indicatorLabel = New-Object System.Windows.Forms.Label
-$indicatorLabel.AutoSize = $false
-$indicatorLabel.Dock = 'Fill'
-$indicatorLabel.TextAlign = 'MiddleCenter'
-$indicatorLabel.ForeColor = [System.Drawing.Color]::White
-$indicatorLabel.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 9)
-$indicatorLabel.Text = '● REC | 모니터링 중'
-$indicator.Controls.Add($indicatorLabel)
+  $indicatorLabel = New-Object System.Windows.Forms.Label
+  $indicatorLabel.AutoSize = $false
+  $indicatorLabel.Dock = 'Fill'
+  $indicatorLabel.TextAlign = 'MiddleCenter'
+  $indicatorLabel.ForeColor = [System.Drawing.Color]::White
+  $indicatorLabel.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 9)
+  $indicatorLabel.Text = '● REC | 모니터링 중'
+  $indicator.Controls.Add($indicatorLabel)
+}
 
+# 트레이 아이콘 (showTrayIcon=false면 보이지 않음. 메뉴/상태객체는 그대로 두고 Visible만 끔)
 $tray = New-Object System.Windows.Forms.NotifyIcon
-$tray.Visible = $true
 $tray.Text = "Stream Monitor (Active)"
-# 시스템 기본 아이콘 + 빨간 오버레이 텍스트로 단순화 (운영 시엔 .ico 교체)
 $tray.Icon = [System.Drawing.SystemIcons]::Information
+$tray.Visible = ($config.showTrayIcon -eq $true)
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $miStatus = $menu.Items.Add('● Streaming...')
@@ -180,20 +195,26 @@ $tray.ContextMenuStrip = $menu
 function Update-UI {
   if ($state.Revoked) {
     $miStatus.Text = '✕ Revoked (관리자에게 새 스트림 요청)'
-    $indicatorLabel.Text = '✕ 모니터링 차단됨'
-    $indicator.BackColor = [System.Drawing.Color]::FromArgb(120,120,120)
+    if ($indicator) {
+      $indicatorLabel.Text = '✕ 모니터링 차단됨'
+      $indicator.BackColor = [System.Drawing.Color]::FromArgb(120,120,120)
+    }
     $miPause.Enabled = $false
     $miResume.Visible = $false
   } elseif ($state.Paused) {
     $miStatus.Text = '⏸ Paused'
-    $indicatorLabel.Text = '⏸ 일시정지됨'
-    $indicator.BackColor = [System.Drawing.Color]::FromArgb(180, 130, 0)
+    if ($indicator) {
+      $indicatorLabel.Text = '⏸ 일시정지됨'
+      $indicator.BackColor = [System.Drawing.Color]::FromArgb(180, 130, 0)
+    }
     $miPause.Visible = $false
     $miResume.Visible = $true
   } else {
     $miStatus.Text = '● Streaming...'
-    $indicatorLabel.Text = '● REC | 모니터링 중'
-    $indicator.BackColor = [System.Drawing.Color]::FromArgb(180, 0, 0)
+    if ($indicator) {
+      $indicatorLabel.Text = '● REC | 모니터링 중'
+      $indicator.BackColor = [System.Drawing.Color]::FromArgb(180, 0, 0)
+    }
     $miPause.Visible = $true
     $miResume.Visible = $false
   }
@@ -277,12 +298,12 @@ $miExit.Add_Click({
   $state.Stopping = $true
   Stop-Capture
   $tray.Visible = $false
-  $indicator.Close()
+  if ($indicator) { $indicator.Close() }
   [System.Windows.Forms.Application]::Exit()
 })
 
 Update-UI
-$indicator.Show()
+if ($indicator) { $indicator.Show() }
 #endregion
 
 #region supervisor loop (auto-restart ffmpeg on crash)

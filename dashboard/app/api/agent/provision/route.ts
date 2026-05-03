@@ -1,9 +1,9 @@
-import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { generateStreamCredentials, getDefaultRetentionDays, getDefaultWatermark } from "@/lib/streams";
+import { consumeProvisionToken, validateProvisionToken } from "@/lib/provision-tokens";
 
 const schema = z.object({
   deviceId: z.string().min(1),
@@ -14,22 +14,31 @@ const schema = z.object({
   ownerEmail: z.string().email().optional()
 });
 
-function secureEqual(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a);
-  const bBuf = Buffer.from(b);
-  if (aBuf.length !== bBuf.length) return false;
-  return crypto.timingSafeEqual(aBuf, bBuf);
-}
-
 export async function POST(request: Request) {
   try {
     const body = schema.parse(await request.json());
-    const serverToken = process.env.STREAM_AGENT_PROVISION_TOKEN;
-    if (!serverToken) {
-      return NextResponse.json({ error: "Provisioning is not configured." }, { status: 503 });
+
+    const validation = await validateProvisionToken(body.provisionToken);
+    if (!validation.ok) {
+      const status = validation.reason === "format" ? 400 : 401;
+      return NextResponse.json(
+        { error: "Invalid provisioning token", detail: validation.reason },
+        { status }
+      );
     }
-    if (!secureEqual(body.provisionToken, serverToken)) {
-      return NextResponse.json({ error: "Invalid provisioning token." }, { status: 401 });
+
+    // DB 토큰인 경우 race-safe consume 먼저. env fallback이면 consume 단계 스킵.
+    if (validation.via === "db" && validation.tokenId) {
+      const consumed = await consumeProvisionToken({
+        tokenId: validation.tokenId,
+        deviceId: body.deviceId
+      });
+      if (!consumed.ok) {
+        return NextResponse.json(
+          { error: "Token already used (race lost)" },
+          { status: 409 }
+        );
+      }
     }
 
     await prisma.deviceMeta.upsert({
@@ -63,7 +72,12 @@ export async function POST(request: Request) {
       action: "agent_provisioned_stream_pending_consent",
       targetType: "Stream",
       targetId: stream.id,
-      metadata: { deviceId: body.deviceId, streamKey }
+      metadata: {
+        deviceId: body.deviceId,
+        streamKey,
+        tokenSource: validation.via,
+        tokenId: validation.tokenId ?? null
+      }
     });
 
     const dashboardBase = process.env.STREAM_PUBLIC_BASE || new URL(request.url).origin;

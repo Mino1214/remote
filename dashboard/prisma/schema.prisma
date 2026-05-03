@@ -46,6 +46,37 @@ model AuditLog {
   createdAt  DateTime @default(now())
 }
 
+// 단일 사용 provision 토큰. 평문은 발급 시 1회만 노출하고, DB에는 SHA-256 해시만 저장한다.
+// 설치 파일(setup.exe)은 generic 한 개로 빌드해두고, 다운로드 시 파일명에 토큰 평문을 박아 보낸다.
+// 사용 흐름:
+//   1) 관리자가 대시보드에서 새 PC 등록 → 토큰 발급 → exe 다운로드
+//   2) 사용자 PC에서 exe 더블클릭 → setup.iss [Code]가 자기 파일명에서 토큰 추출
+//   3) /api/agent/provision 호출 → 서버는 토큰 해시로 ProvisionToken 조회 → 일치 + ACTIVE면 통과
+//   4) 통과 시 status를 USED로 마킹하고 usedByDeviceId 기록 → 두 번째 사용은 차단
+model ProvisionToken {
+  id              String                @id @default(cuid())
+  tokenHash       String                @unique
+  tokenPrefix     String                // 평문 토큰의 앞 8자. UI/로그에서 식별용 (실제 검증에는 사용하지 않음)
+  status          ProvisionTokenStatus  @default(ACTIVE)
+  createdByEmail  String                // 발급한 관리자 이메일 (audit)
+  intendedAlias   String?               // 발급 시점에 예상한 PC 별칭
+  intendedOwner   String?               // 발급 시점에 예상한 소유자 이메일
+  usedAt          DateTime?
+  usedByDeviceId  String?               // provision 시 채워짐 (rustdeskId)
+  revokedAt       DateTime?
+  revokedReason   String?
+  createdAt       DateTime              @default(now())
+
+  @@index([status])
+  @@index([usedByDeviceId])
+}
+
+enum ProvisionTokenStatus {
+  ACTIVE       // 발급됨, 아직 사용/철회되지 않음
+  USED         // 한 번 사용됨 (재사용 불가)
+  REVOKED      // 관리자가 명시적으로 철회
+}
+
 // 모니터링 스트림 등록 단위. 한 디바이스가 여러 스트림(주화면/보조화면)을 가질 수 있음.
 // `consentAcceptedAt`이 null인 스트림은 ingest를 거부한다 (사용자 동의 없는 스트리밍 차단).
 model Stream {
