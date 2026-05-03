@@ -31,8 +31,9 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const token = url.searchParams.get("token");
-    if (!token || !isValidTokenFormat(token)) {
-      return NextResponse.json({ error: "Missing or invalid token" }, { status: 400 });
+    // 토큰은 옵션. 들어왔는데 형식이 깨진 경우만 거부.
+    if (token && !isValidTokenFormat(token)) {
+      return NextResponse.json({ error: "Invalid token format" }, { status: 400 });
     }
 
     const filePath = resolveInstallerPath();
@@ -47,7 +48,9 @@ export async function GET(request: Request) {
     }
 
     const stat = fs.statSync(filePath);
-    const downloadName = `StreamMonitor-Setup-${token}.exe`;
+    const downloadName = token
+      ? `StreamMonitor-Setup-${token}.exe`
+      : "StreamMonitor-Setup.exe";
 
     // Stream the file. Next.js 14 RouteHandler에서는 ReadableStream을 직접 Response로 줄 수 있음.
     const nodeStream = fs.createReadStream(filePath);

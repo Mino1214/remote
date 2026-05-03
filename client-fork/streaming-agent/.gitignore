@@ -1,0 +1,6 @@
+# Inno Setup build artifacts (build-installer.ps1로 로컬 생성)
+StreamMonitor-Setup.exe
+setup-build.log
+
+# Debug helpers
+_extracted-from-exe.png

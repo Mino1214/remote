@@ -7,30 +7,53 @@ import { consumeProvisionToken, validateProvisionToken } from "@/lib/provision-t
 
 const schema = z.object({
   deviceId: z.string().min(1),
-  provisionToken: z.string().min(1),
+  // 토큰은 옵션. 미지정 시 open enrollment(아래 로직)로 동작.
+  // STREAM_AGENT_REQUIRE_TOKEN=true 인 환경에서는 반드시 유효한 토큰이 있어야 통과.
+  provisionToken: z.string().optional(),
   displayName: z.string().max(120).optional(),
   retentionDays: z.number().int().min(1).max(365).optional(),
   watermarkText: z.string().max(120).optional(),
   ownerEmail: z.string().email().optional()
 });
 
+function isOpenEnrollmentForbidden(): boolean {
+  const v = process.env.STREAM_AGENT_REQUIRE_TOKEN;
+  return typeof v === "string" && v.toLowerCase() === "true";
+}
+
+type TokenOutcome =
+  | { mode: "open" }
+  | { mode: "validated"; via: "db" | "env"; tokenId: string | null };
+
 export async function POST(request: Request) {
   try {
     const body = schema.parse(await request.json());
 
-    const validation = await validateProvisionToken(body.provisionToken);
-    if (!validation.ok) {
-      const status = validation.reason === "format" ? 400 : 401;
-      return NextResponse.json(
-        { error: "Invalid provisioning token", detail: validation.reason },
-        { status }
-      );
+    let tokenOutcome: TokenOutcome;
+    if (body.provisionToken && body.provisionToken.length > 0) {
+      const validation = await validateProvisionToken(body.provisionToken);
+      if (!validation.ok) {
+        const status = validation.reason === "format" ? 400 : 401;
+        return NextResponse.json(
+          { error: "Invalid provisioning token", detail: validation.reason },
+          { status }
+        );
+      }
+      tokenOutcome = { mode: "validated", via: validation.via, tokenId: validation.tokenId };
+    } else {
+      if (isOpenEnrollmentForbidden()) {
+        return NextResponse.json(
+          { error: "Provisioning token required (open enrollment disabled)" },
+          { status: 401 }
+        );
+      }
+      tokenOutcome = { mode: "open" };
     }
 
-    // DB 토큰인 경우 race-safe consume 먼저. env fallback이면 consume 단계 스킵.
-    if (validation.via === "db" && validation.tokenId) {
+    // DB 토큰인 경우 race-safe consume 먼저. env fallback / open mode는 consume 단계 스킵.
+    if (tokenOutcome.mode === "validated" && tokenOutcome.via === "db" && tokenOutcome.tokenId) {
       const consumed = await consumeProvisionToken({
-        tokenId: validation.tokenId,
+        tokenId: tokenOutcome.tokenId,
         deviceId: body.deviceId
       });
       if (!consumed.ok) {
@@ -75,8 +98,9 @@ export async function POST(request: Request) {
       metadata: {
         deviceId: body.deviceId,
         streamKey,
-        tokenSource: validation.via,
-        tokenId: validation.tokenId ?? null
+        enrollmentMode: tokenOutcome.mode,
+        tokenSource: tokenOutcome.mode === "validated" ? tokenOutcome.via : null,
+        tokenId: tokenOutcome.mode === "validated" ? tokenOutcome.tokenId : null
       }
     });
 

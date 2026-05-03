@@ -327,9 +327,8 @@ foreach ($file in $mustHaveMarkers.Keys) {
 Write-Host "동기화 검증 OK (신버전 마커 확인)"
 
 if ($AutoProvision) {
-  if (-not $ProvisionToken) { throw "-AutoProvision 사용 시 -ProvisionToken이 필요합니다." }
-  $ProvisionToken = $ProvisionToken.Trim()
-  if (-not $ProvisionToken) { throw "ProvisionToken이 비어 있습니다." }
+  # 토큰은 옵션. 미지정/공백이면 open enrollment 모드로 서버에 요청 (서버가 거부하면 401).
+  if ($ProvisionToken) { $ProvisionToken = $ProvisionToken.Trim() }
   if (-not $DeviceId) { $DeviceId = New-AutoDeviceId }
   if (-not (Test-Path $configPath)) {
     Write-Host "agent-config.json이 없어 기본 파일을 생성합니다."
@@ -356,12 +355,17 @@ if ($AutoProvision) {
 
   Show-Section "2) 서버 자동 프로비저닝"
   Write-Host "deviceId 자동 사용: $DeviceId"
+  if ($ProvisionToken) {
+    Write-Host "provision 모드: 토큰"
+  } else {
+    Write-Host "provision 모드: open enrollment (토큰 없음)"
+  }
   $provisionUrl = "$($DashboardBase.TrimEnd('/'))/api/agent/provision"
   $payloadObj = @{
     deviceId = $DeviceId
-    provisionToken = $ProvisionToken
     retentionDays = $RetentionDays
   }
+  if ($ProvisionToken) { $payloadObj.provisionToken = $ProvisionToken }
   if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $payloadObj.displayName = $DisplayName }
   if (-not [string]::IsNullOrWhiteSpace($WatermarkText)) { $payloadObj.watermarkText = $WatermarkText }
   if (-not [string]::IsNullOrWhiteSpace($OwnerEmail)) { $payloadObj.ownerEmail = $OwnerEmail }
