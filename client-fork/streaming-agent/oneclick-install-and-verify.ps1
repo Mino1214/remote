@@ -372,35 +372,48 @@ if ($AutoProvision) {
   } else {
     Write-Host "provision 모드: open enrollment (토큰 없음)"
   }
-  $provisionUrl = "$($DashboardBase.TrimEnd('/'))/api/agent/provision"
-  $payloadObj = @{
-    deviceId = $DeviceId
-    retentionDays = $RetentionDays
-  }
-  if ($ProvisionToken) { $payloadObj.provisionToken = $ProvisionToken }
-  if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $payloadObj.displayName = $DisplayName }
-  if (-not [string]::IsNullOrWhiteSpace($WatermarkText)) { $payloadObj.watermarkText = $WatermarkText }
-  if (-not [string]::IsNullOrWhiteSpace($OwnerEmail)) { $payloadObj.ownerEmail = $OwnerEmail }
-  $payload = $payloadObj | ConvertTo-Json -Compress
-
-  $resp = Invoke-RestMethod -Method POST -Uri $provisionUrl -Body $payload -ContentType "application/json"
-  if (-not $resp.data.streamId -or -not $resp.data.streamKey -or -not $resp.data.ingestSecret) {
-    throw "프로비저닝 응답이 올바르지 않습니다."
-  }
-
-  $StreamId = [string]$resp.data.streamId
-  $streamKey = [string]$resp.data.streamKey
-  $ingestSecret = [string]$resp.data.ingestSecret
-  if ($resp.data.dashboardBase) {
-    $DashboardBase = [string]$resp.data.dashboardBase
-  }
-
-  Write-Host "streamId 자동 발급: $StreamId"
   $config = Get-Content $configPath -Raw | ConvertFrom-Json
-  $config.dashboardBase = $DashboardBase
-  $config.streamId = $StreamId
-  $config.streamKey = $streamKey
-  $config.ingestSecret = $ingestSecret
+  $hasExistingProvision = (
+    -not [string]::IsNullOrWhiteSpace([string]$config.streamId) -and
+    -not [string]::IsNullOrWhiteSpace([string]$config.streamKey) -and
+    -not [string]::IsNullOrWhiteSpace([string]$config.ingestSecret)
+  )
+  if ($hasExistingProvision) {
+    $StreamId = [string]$config.streamId
+    if (-not [string]::IsNullOrWhiteSpace([string]$config.dashboardBase)) {
+      $DashboardBase = [string]$config.dashboardBase
+    }
+    Write-Host "기존 streamId 재사용: $StreamId (중복 프로비저닝 생략)"
+  } else {
+    $provisionUrl = "$($DashboardBase.TrimEnd('/'))/api/agent/provision"
+    $payloadObj = @{
+      deviceId = $DeviceId
+      retentionDays = $RetentionDays
+    }
+    if ($ProvisionToken) { $payloadObj.provisionToken = $ProvisionToken }
+    if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $payloadObj.displayName = $DisplayName }
+    if (-not [string]::IsNullOrWhiteSpace($WatermarkText)) { $payloadObj.watermarkText = $WatermarkText }
+    if (-not [string]::IsNullOrWhiteSpace($OwnerEmail)) { $payloadObj.ownerEmail = $OwnerEmail }
+    $payload = $payloadObj | ConvertTo-Json -Compress
+
+    $resp = Invoke-RestMethod -Method POST -Uri $provisionUrl -Body $payload -ContentType "application/json"
+    if (-not $resp.data.streamId -or -not $resp.data.streamKey -or -not $resp.data.ingestSecret) {
+      throw "프로비저닝 응답이 올바르지 않습니다."
+    }
+
+    $StreamId = [string]$resp.data.streamId
+    $streamKey = [string]$resp.data.streamKey
+    $ingestSecret = [string]$resp.data.ingestSecret
+    if ($resp.data.dashboardBase) {
+      $DashboardBase = [string]$resp.data.dashboardBase
+    }
+
+    Write-Host "streamId 자동 발급: $StreamId"
+    $config.dashboardBase = $DashboardBase
+    $config.streamId = $StreamId
+    $config.streamKey = $streamKey
+    $config.ingestSecret = $ingestSecret
+  }
   if ($WatermarkText) {
     $config.watermarkText = $WatermarkText
   }

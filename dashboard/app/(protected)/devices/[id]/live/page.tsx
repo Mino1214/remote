@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { issuePlaybackToken } from "@/lib/streams";
 import { StreamLivePlayer } from "@/components/stream-live-player";
 
 export const dynamic = "force-dynamic";
@@ -57,22 +56,13 @@ export default async function DeviceLivePage({
     );
   }
 
-  // 서버사이드에서 첫 토큰 발급해 즉시 재생 가능하게 한다.
-  // (이후 만료 시 클라이언트가 /playback-token API로 갱신)
-  const { token, exp } = issuePlaybackToken(active.streamKey, "server-render");
-  const hlsUrl = `/api/streams/play/${active.streamKey}/index.m3u8?token=${encodeURIComponent(token)}`;
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Live · {active.displayName ?? params.id}</h1>
+        <h1 className="text-2xl font-semibold">Control · {active.displayName ?? params.id}</h1>
         <div className="flex items-center gap-2 text-xs">
           <Link href={`/devices/${params.id}`} className="underline">
             상세
-          </Link>
-          <span>·</span>
-          <Link href={`/devices/${params.id}/recordings?stream=${active.id}`} className="underline">
-            녹화 목록
           </Link>
         </div>
       </div>
@@ -95,11 +85,8 @@ export default async function DeviceLivePage({
 
       <StreamLivePlayer
         streamId={active.id}
-        initialInfo={{
-          hlsUrl,
-          watermarkText: active.watermarkText,
-          exp
-        }}
+        watermarkText={active.watermarkText}
+        autoConnect
       />
 
       <div className="rounded-lg border bg-card p-4 text-xs text-muted-foreground">

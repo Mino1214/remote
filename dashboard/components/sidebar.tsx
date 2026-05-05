@@ -1,21 +1,33 @@
 import Link from "next/link";
+import { Monitor, Settings, Users, Video } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const items = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/devices", label: "Devices" },
-  { href: "/streams", label: "Streams" },
-  { href: "/users", label: "Users" },
-  { href: "/sessions", label: "Sessions" },
-  { href: "/settings", label: "Settings" }
+  { href: "/dashboard", label: "PC Control", icon: Monitor },
+  { href: "/devices", label: "Devices", icon: Monitor },
+  { href: "/streams", label: "Streams", icon: Video },
+  { href: "/users", label: "Users", icon: Users },
+  { href: "/settings", label: "Settings", icon: Settings }
 ];
 
 export function Sidebar() {
   return (
-    <aside className="w-56 border-r bg-card p-4">
-      <h2 className="mb-4 text-sm font-semibold text-muted-foreground">RustDesk Admin</h2>
-      <nav className="space-y-2">
+    <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-border bg-card px-3 py-4">
+      <div className="mb-6 flex items-center justify-between px-2">
+        <div>
+          <h2 className="text-sm font-semibold">PC Control</h2>
+          <p className="text-xs text-muted-foreground">RTC dashboard</p>
+        </div>
+        <ThemeToggle />
+      </div>
+      <nav className="space-y-1">
         {items.map((item) => (
-          <Link key={item.href} href={item.href} className="block rounded px-3 py-2 text-sm hover:bg-muted">
+          <Link
+            key={item.href}
+            href={item.href}
+            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          >
+            <item.icon className="h-4 w-4" />
             {item.label}
           </Link>
         ))}

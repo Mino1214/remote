@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import { createWriteStream } from "node:fs";
-import path from "node:path";
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { prisma } from "@/lib/prisma";
@@ -28,7 +27,6 @@ export const dynamic = "force-dynamic";
  * - 파일명 화이트리스트 (.m3u8/.ts/.mp4/.m4s/.vtt 만 허용, path traversal 차단).
  *
  * 부수 효과:
- * - 새 .ts 세그먼트가 들어오면 StreamRecording row 1개 생성 (메타).
  * - stream.lastSeenAt 업데이트.
  */
 
@@ -102,17 +100,6 @@ export async function PUT(
     where: { id: stream.id },
     data: { lastSeenAt: new Date() }
   });
-
-  if (params.file.endsWith(".ts") || params.file.endsWith(".m4s") || params.file.endsWith(".mp4")) {
-    await prisma.streamRecording.create({
-      data: {
-        streamId: stream.id,
-        filePath: path.relative(path.resolve("/var/streams"), filePath) || params.file,
-        startedAt: new Date(),
-        sizeBytes: BigInt(bytesWritten)
-      }
-    });
-  }
 
   return NextResponse.json({ ok: true, bytes: bytesWritten });
 }

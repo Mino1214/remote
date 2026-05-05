@@ -57,7 +57,7 @@ export async function GET(request: Request) {
     const webStream = new ReadableStream<Uint8Array>({
       start(controller) {
         nodeStream.on("data", (chunk) => {
-          controller.enqueue(chunk instanceof Buffer ? new Uint8Array(chunk) : chunk);
+          controller.enqueue(typeof chunk === "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk));
         });
         nodeStream.on("end", () => controller.close());
         nodeStream.on("error", (err) => controller.error(err));
