@@ -154,10 +154,10 @@ function Install-DirectCopy {
       ingestSecret = ''
       adminContact = 'admin@example.com'
       watermarkText = $script:WatermarkText
-      captureFramerate = 10
+      captureFramerate = 15
       captureBitrateKbps = 1500
-      segmentSeconds = 2
-      playlistSize = 6
+      segmentSeconds = 1
+      playlistSize = 3
       # 트레이 아이콘 표시 여부. false면 시스템 트레이에도 안 뜸.
       # (운영/감사 측면에서는 true 권장 — 사용자가 일시정지/철회 가능해야 함)
       showTrayIcon = $false
@@ -339,10 +339,10 @@ if ($AutoProvision) {
       ingestSecret = ""
       adminContact = "admin@example.com"
       watermarkText = $WatermarkText
-      captureFramerate = 10
+      captureFramerate = 15
       captureBitrateKbps = 1500
-      segmentSeconds = 2
-      playlistSize = 6
+      segmentSeconds = 1
+      playlistSize = 3
       showTrayIcon = $true
       showOnScreenIndicator = $true
       allowUserPause = $true

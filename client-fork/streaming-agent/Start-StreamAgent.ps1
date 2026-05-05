@@ -60,6 +60,18 @@ if (-not (Test-Path $ConfigPath)) {
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class NativeInput {
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+}
+"@
 
 . (Join-Path $scriptDir 'Set-StreamPause.ps1')
 
@@ -145,6 +157,79 @@ $state = [PSCustomObject]@{
   Paused = $false
   Revoked = $false
   Stopping = $false
+}
+$control = [PSCustomObject]@{
+  SessionId = $null
+  LastSeq = 0
+}
+
+function Invoke-ControlApi {
+  param(
+    [Parameter(Mandatory=$true)][ValidateSet('GET','POST')][string]$Method,
+    [Parameter(Mandatory=$true)][string]$Path,
+    [object]$Body = $null
+  )
+  $url = "$($config.dashboardBase.TrimEnd('/'))$Path"
+  $headers = @{ Authorization = "Bearer $($config.ingestSecret)" }
+  if ($Method -eq 'GET') {
+    return Invoke-RestMethod -Method GET -Uri $url -Headers $headers -TimeoutSec 4
+  }
+  return Invoke-RestMethod -Method POST -Uri $url -Headers $headers -Body ($Body | ConvertTo-Json -Compress) -ContentType "application/json" -TimeoutSec 4
+}
+
+function Convert-KeyToSendKeys([string]$key, [string]$code) {
+  if ($code -eq 'Enter') { return '{ENTER}' }
+  if ($code -eq 'Backspace') { return '{BACKSPACE}' }
+  if ($code -eq 'Tab') { return '{TAB}' }
+  if ($code -eq 'Escape') { return '{ESC}' }
+  if ($code -eq 'ArrowUp') { return '{UP}' }
+  if ($code -eq 'ArrowDown') { return '{DOWN}' }
+  if ($code -eq 'ArrowLeft') { return '{LEFT}' }
+  if ($code -eq 'ArrowRight') { return '{RIGHT}' }
+  if ($key -and $key.Length -eq 1) {
+    # SendKeys 예약문자 escape
+    if ('+^%~(){}[]'.Contains($key)) { return "{$key}" }
+    return $key
+  }
+  return $null
+}
+
+function Invoke-ControlEvent([string]$payloadText) {
+  try {
+    $evt = $payloadText | ConvertFrom-Json
+    $t = [string]$evt.t
+    switch ($t) {
+      'mouse_move' {
+        $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $x = [math]::Round([double]$evt.x * [double]$screen.Width)
+        $y = [math]::Round([double]$evt.y * [double]$screen.Height)
+        [NativeInput]::SetCursorPos([int]$x, [int]$y) | Out-Null
+      }
+      'mouse_down' {
+        switch ([int]$evt.button) {
+          2 { [NativeInput]::mouse_event(0x0008,0,0,0,[UIntPtr]::Zero) } # right down
+          default { [NativeInput]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero) } # left down
+        }
+      }
+      'mouse_up' {
+        switch ([int]$evt.button) {
+          2 { [NativeInput]::mouse_event(0x0010,0,0,0,[UIntPtr]::Zero) } # right up
+          default { [NativeInput]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero) } # left up
+        }
+      }
+      'mouse_wheel' {
+        $delta = [int][math]::Round([double]$evt.dy * -1)
+        if ($delta -eq 0) { $delta = 120 }
+        [NativeInput]::mouse_event(0x0800,0,0,[uint32]([math]::Abs($delta)),[UIntPtr]::Zero)
+      }
+      'key_down' {
+        $send = Convert-KeyToSendKeys -key ([string]$evt.key) -code ([string]$evt.code)
+        if ($send) { [System.Windows.Forms.SendKeys]::SendWait($send) }
+      }
+    }
+  } catch {
+    Write-Log "control event parse/apply failed: $($_.Exception.Message)"
+  }
 }
 
 # 항상 위 REC 인디케이터. config.showOnScreenIndicator=false면 생성 안 함.
@@ -318,6 +403,36 @@ $timer.Add_Tick({
   }
 })
 $timer.Start()
+
+$controlTimer = New-Object System.Windows.Forms.Timer
+$controlTimer.Interval = 400
+$controlTimer.Add_Tick({
+  if ($state.Stopping -or $state.Revoked -or $state.Paused) { return }
+  if (-not $control.SessionId) {
+    try {
+      $resp = Invoke-ControlApi -Method GET -Path "/api/streams/$($config.streamId)/control/session?role=agent"
+      if ($resp -and $resp.data -and $resp.data.sessionId) {
+        $control.SessionId = [string]$resp.data.sessionId
+        $control.LastSeq = 0
+        Write-Log "control session attached: $($control.SessionId)"
+      }
+    } catch {}
+    return
+  }
+  try {
+    $eventsResp = Invoke-ControlApi -Method GET -Path "/api/streams/$($config.streamId)/control/events?sessionId=$($control.SessionId)&afterSeq=$($control.LastSeq)"
+    if ($eventsResp -and $eventsResp.data -and $eventsResp.data.events) {
+      foreach ($e in $eventsResp.data.events) {
+        Invoke-ControlEvent -payloadText ([string]$e.payload)
+        $control.LastSeq = [int]$e.seq
+      }
+    }
+  } catch {
+    # 세션 만료/삭제 시 재탐색
+    $control.SessionId = $null
+  }
+})
+$controlTimer.Start()
 #endregion
 
 Write-Log "agent started; entering message loop"

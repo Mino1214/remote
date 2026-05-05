@@ -18,10 +18,10 @@ param(
   [Parameter(Mandatory=$true)] [string]$IngestBaseUrl,    # 예: https://admin.housingnewshub.info/api/streams/ingest/s_xxx
   [Parameter(Mandatory=$true)] [string]$IngestSecret,
   [Parameter(Mandatory=$true)] [string]$WatermarkText,
-  [int]$Framerate = 10,
+  [int]$Framerate = 15,
   [int]$BitrateKbps = 1500,
-  [int]$SegmentSeconds = 2,
-  [int]$PlaylistSize = 6
+  [int]$SegmentSeconds = 1,
+  [int]$PlaylistSize = 3
 )
 
 if ($Framerate -lt 5)     { $Framerate = 5 }

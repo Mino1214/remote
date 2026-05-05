@@ -35,6 +35,9 @@ function isAllowedIp(request: NextRequest) {
 function isStreamingAgentEndpoint(pathname: string): boolean {
   if (pathname === "/api/agent/provision") return true;
   if (/^\/api\/streams\/[^/]+\/(consent|pause|resume)$/.test(pathname)) return true;
+  if (/^\/api\/streams\/[^/]+\/control\/session$/.test(pathname)) return true;
+  if (/^\/api\/streams\/[^/]+\/control\/signal$/.test(pathname)) return true;
+  if (/^\/api\/streams\/[^/]+\/control\/events$/.test(pathname)) return true;
   if (/^\/api\/streams\/ingest\/[^/]+\/[^/]+$/.test(pathname)) return true;
   if (/^\/api\/streams\/play\/[^/]+\/[^/]+$/.test(pathname)) return true;
   return false;

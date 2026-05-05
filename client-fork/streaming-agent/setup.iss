@@ -48,8 +48,8 @@ DisableFinishedPage=yes
 DisableReadyMemo=yes
 ShowLanguageDialog=no
 SetupLogging=yes
-SetupIconFile=icon.ico
-UninstallDisplayIcon={app}\icon.ico
+SetupIconFile=logo.ico
+UninstallDisplayIcon={app}\logo.ico
 
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
@@ -63,16 +63,17 @@ Source: "Set-StreamPause.ps1";              DestDir: "{app}"; Flags: ignoreversi
 Source: "install.ps1";                      DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall.ps1";                    DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md";                        DestDir: "{app}"; Flags: ignoreversion
-Source: "icon.ico";                         DestDir: "{app}"; Flags: ignoreversion
+Source: "logo.ico";                         DestDir: "{app}"; Flags: ignoreversion
 
 [Run]
 ; oneclick-install-and-verify.ps1 한 줄로 모든 설치/프로비저닝/ffmpeg/Task Scheduler/에이전트 기동을 처리.
 ; - 토큰 모드(고급): /TOKEN=tk_xxxxxxxx... 로 실행하면 [Code] 섹션이 oneclick에 -ProvisionToken으로 넘긴다.
 ; - 기본: 토큰 없이 open enrollment.
-; - WindowStyle Hidden 이므로 콘솔창은 한 개도 안 뜬다.
+; - nowait: wizard가 ps1 종료 안 기다리고 바로 닫힘 (ps1은 백그라운드에서 계속 돔).
+; - runhidden: ps1 콘솔 창 자체도 안 뜸.
 Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\oneclick-install-and-verify.ps1"" -DashboardBase ""{#DashboardBase}"" -AutoProvision {code:GetTokenArg}"; \
-  Flags: runhidden waituntilterminated
+  Flags: runhidden nowait
 
 [UninstallRun]
 Filename: "powershell.exe"; \
@@ -81,50 +82,102 @@ Filename: "powershell.exe"; \
 
 [Code]
 // 사용자 입장: UAC 한 번만 보고 어떤 wizard 창도 안 떠야 함.
-// 전략: 첫 인스턴스는 InitializeSetup에서 자기 자신을 /VERYSILENT로 다시 띄우고 즉시 종료.
-//       두 번째(silent) 인스턴스가 실제 [Files]/[Run]을 처리.
-//       부모가 이미 elevated이므로 자식은 추가 UAC 없이 elevated 상속.
 //
-// 디버그: ProgramData\StreamMonitor\setup-init.log 에 진입/재실행 결과를 남긴다.
-//        문제가 생기면 거기 보면 됨.
-function InitializeSetup(): Boolean;
+// 전략: WS_VISIBLE 비트를 창 스타일에서 직접 제거하고 ShowWindow(SW_HIDE)로 못 박는다.
+//       Inno가 내부적으로 다시 보여주려 해도 OS 레벨에서 안 보임.
+//       각 페이지 진입 시 NextButton.OnClick 으로 자동 진행.
+//       [Run]은 nowait 라 ps1 spawn 즉시 wizard 닫힘.
+const
+  SW_HIDE_LOCAL = 0;
+  GWL_STYLE = -16;
+  GWL_EXSTYLE = -20;
+  WS_VISIBLE = $10000000;
+  WS_EX_TOOLWINDOW = $80;
+  SWP_NOACTIVATE = $0010;
+  SWP_NOZORDER   = $0004;
+  SWP_HIDEWINDOW = $0080;
+
+function ShowWindow(hWnd: HWND; nCmdShow: Integer): Boolean;
+  external 'ShowWindow@user32.dll stdcall';
+function GetWindowLongW(hWnd: HWND; nIndex: Integer): LongInt;
+  external 'GetWindowLongW@user32.dll stdcall';
+function SetWindowLongW(hWnd: HWND; nIndex: Integer; dwNewLong: LongInt): LongInt;
+  external 'SetWindowLongW@user32.dll stdcall';
+function SetWindowPos(hWnd: HWND; hWndInsertAfter: HWND; X, Y, cx, cy: Integer; uFlags: LongInt): Boolean;
+  external 'SetWindowPos@user32.dll stdcall';
+function PostMessageW(hWnd: HWND; Msg: LongWord; wParam, lParam: LongInt): Boolean;
+  external 'PostMessageW@user32.dll stdcall';
+procedure ExitProcessAPI(uExitCode: LongInt);
+  external 'ExitProcess@kernel32.dll stdcall';
+
+const
+  BM_CLICK = $00F5;
+
+procedure HideWizardForm;
 var
-  ResultCode: Integer;
-  LogDir, LogFile, SrcExe, Params: String;
-  Ok: Boolean;
+  ExStyle: LongInt;
 begin
+  // 주의:
+  // - WS_VISIBLE 제거 → 클릭 이벤트가 dispatch 안 됨 (멈춤). ❌
+  // - 1x1 크기   → Inno 내부 layout 망가져 NextButton 동작 안 함. ❌
+  // - SW_HIDE    → 위와 같은 부작용 가능. ❌
+  // 그래서 단순히 화면 밖(-32000,-32000)으로만 보내고, 작업표시줄에서만 숨긴다.
+  ExStyle := GetWindowLongW(WizardForm.Handle, GWL_EXSTYLE);
+  SetWindowLongW(WizardForm.Handle, GWL_EXSTYLE, ExStyle or WS_EX_TOOLWINDOW);
+  SetWindowPos(WizardForm.Handle, 0, -32000, -32000, 0, 0,
+               SWP_NOACTIVATE or SWP_NOZORDER or $0001); // SWP_NOSIZE
+end;
+
+procedure DebugLog(const Msg: String);
+begin
+  SaveStringToFile(ExpandConstant('{commonappdata}\StreamMonitor\setup-init.log'),
+    '[' + GetDateTimeString('yyyy-mm-dd hh:nn:ss', '-', ':') + '] ' + Msg + #13#10, True);
+end;
+
+procedure InitializeWizard();
+begin
+  ForceDirectories(ExpandConstant('{commonappdata}\StreamMonitor'));
+  DebugLog('InitializeWizard: hiding wizard form');
+  HideWizardForm;
+end;
+
+// 보험: ShouldSkipPage가 동작하면 페이지 자체가 스킵되어 CurPageChanged 안 뜸.
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  DebugLog('ShouldSkipPage: page=' + IntToStr(PageID));
+  // wpInstalling/wpPreparing 등은 어차피 호출 안 됨. 나머지 모두 스킵.
   Result := True;
-  LogDir := ExpandConstant('{commonappdata}\StreamMonitor');
-  ForceDirectories(LogDir);
-  LogFile := LogDir + '\setup-init.log';
+end;
 
-  if WizardSilent() then
+procedure CurPageChanged(CurPageID: Integer);
+var
+  ClickResult: Boolean;
+begin
+  DebugLog('CurPageChanged: page=' + IntToStr(CurPageID) +
+           ' nextEnabled=' + IntToStr(Ord(WizardForm.NextButton.Enabled)));
+  HideWizardForm;
+  // wpInstalling(12)/wpFinished(14) 이전 페이지에서는 BM_CLICK을 메시지 큐에 비동기로 넣어
+  // 현재 이벤트 핸들러 return 후 정상 dispatch 시킨다. (동기 OnClick은 page=10에서 dropped 됐음)
+  if (CurPageID < 11) and WizardForm.NextButton.Enabled then
   begin
-    SaveStringToFile(LogFile,
-      '[' + GetDateTimeString('yyyy-mm-dd hh:nn:ss', '-', ':') + '] silent child running, proceed with install' + #13#10,
-      True);
-    Exit;
+    ClickResult := PostMessageW(WizardForm.NextButton.Handle, BM_CLICK, 0, 0);
+    DebugLog('  -> PostMessage(BM_CLICK) result=' + IntToStr(Ord(ClickResult)));
   end;
+end;
 
-  SrcExe := ExpandConstant('{srcexe}');
-  Params := '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-';
-  SaveStringToFile(LogFile,
-    '[' + GetDateTimeString('yyyy-mm-dd hh:nn:ss', '-', ':') + '] re-launching silently: ' + SrcExe + ' ' + Params + #13#10,
-    True);
-  Ok := Exec(SrcExe, Params, ExtractFilePath(SrcExe), SW_HIDE, ewNoWait, ResultCode);
-  if Ok then
-  begin
-    SaveStringToFile(LogFile,
-      '[' + GetDateTimeString('yyyy-mm-dd hh:nn:ss', '-', ':') + '] re-launch spawned OK, exiting first instance' + #13#10,
-      True);
-    Result := False;
-  end
-  else
-  begin
-    SaveStringToFile(LogFile,
-      '[' + GetDateTimeString('yyyy-mm-dd hh:nn:ss', '-', ':') + '] re-launch FAILED, falling back to interactive install' + #13#10,
-      True);
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  case CurStep of
+    ssInstall:     DebugLog('CurStepChanged: ssInstall');
+    ssPostInstall: DebugLog('CurStepChanged: ssPostInstall');
+    ssDone:        DebugLog('CurStepChanged: ssDone');
   end;
+end;
+
+// 설치가 완전히 끝나면(Cleanup 단계) 프로세스를 즉시 종료해 좀비 setup이 남지 않게 함.
+procedure DeinitializeSetup();
+begin
+  ExitProcessAPI(0);
 end;
 
 // 토큰 형식 약식 검증: tk_ 로 시작 + 16자 이상 base64url

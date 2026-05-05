@@ -16,10 +16,10 @@
   "watermarkText": "● REC | 관리자 모니터링 활성화",
   "_watermarkText_help": "ffmpeg drawtext로 송출 스트림에 박히는 워터마크 문구.",
 
-  "captureFramerate": 10,
+  "captureFramerate": 15,
   "captureBitrateKbps": 1500,
-  "segmentSeconds": 2,
-  "playlistSize": 6,
+  "segmentSeconds": 1,
+  "playlistSize": 3,
 
   "_safety_lock": "이 4개 옵션은 false로 바꿀 수 없음. 안전선 위반.",
   "showTrayIcon": true,

@@ -2,6 +2,7 @@
 
 import Hls from "hls.js";
 import { useEffect, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 
 type StreamLiveInfo = {
@@ -26,9 +27,18 @@ export function StreamLivePlayer({
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const dcRef = useRef<RTCDataChannel | null>(null);
+  const controlSessionIdRef = useRef<string | null>(null);
+  const signalPollRef = useRef<number | null>(null);
+  const agentCandidateCursorRef = useRef(0);
+  const lastMouseMoveAtRef = useRef(0);
   const [info, setInfo] = useState<StreamLiveInfo>(initialInfo);
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [controlConnected, setControlConnected] = useState(false);
+  const [controlEnabled, setControlEnabled] = useState(false);
+  const [controlStatus, setControlStatus] = useState<string>("미연결");
 
   async function refreshToken(): Promise<StreamLiveInfo | null> {
     try {
@@ -57,6 +67,61 @@ export function StreamLivePlayer({
     }
   }
 
+  function stopSignalPoll() {
+    if (signalPollRef.current !== null) {
+      window.clearInterval(signalPollRef.current);
+      signalPollRef.current = null;
+    }
+  }
+
+  function stopControl() {
+    stopSignalPoll();
+    if (dcRef.current) {
+      try {
+        dcRef.current.close();
+      } catch {}
+      dcRef.current = null;
+    }
+    if (pcRef.current) {
+      try {
+        pcRef.current.close();
+      } catch {}
+      pcRef.current = null;
+    }
+    controlSessionIdRef.current = null;
+    setControlEnabled(false);
+    setControlConnected(false);
+    setControlStatus("미연결");
+  }
+
+  function sendControlEvent(type: string, payload: Record<string, unknown>) {
+    const body = JSON.stringify({
+      v: 1,
+      t: type,
+      ts: Date.now(),
+      ...payload
+    });
+    const dc = dcRef.current;
+    if (dc && dc.readyState === "open") {
+      dc.send(body);
+      return;
+    }
+    const sessionId = controlSessionIdRef.current;
+    if (!sessionId) return;
+    void fetch(`/api/streams/${streamId}/control/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, payload: body })
+    });
+  }
+
+  function pointerMeta(element: HTMLVideoElement, event: ReactMouseEvent<HTMLVideoElement>) {
+    const rect = element.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
+    const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / Math.max(1, rect.height)));
+    return { x, y, w: rect.width, h: rect.height };
+  }
+
   async function start() {
     setError(null);
     if (!videoRef.current) return;
@@ -72,9 +137,12 @@ export function StreamLivePlayer({
     if (Hls.isSupported()) {
       const hls = new Hls({
         lowLatencyMode: true,
-        liveSyncDuration: 2,
-        liveMaxLatencyDuration: 6,
-        backBufferLength: 30
+        // 일반 HLS(mpegts) 환경에서도 라이브 추종을 공격적으로 유지해 지연을 줄인다.
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 4,
+        maxLiveSyncPlaybackRate: 1.2,
+        backBufferLength: 10,
+        maxBufferLength: 8
       });
       hlsRef.current = hls;
       hls.loadSource(current.hlsUrl);
@@ -114,8 +182,102 @@ export function StreamLivePlayer({
     setPlaying(false);
   }
 
+  async function startControl() {
+    setError(null);
+    if (typeof RTCPeerConnection === "undefined") {
+      setError("이 브라우저는 WebRTC를 지원하지 않습니다.");
+      return;
+    }
+
+    stopControl();
+    setControlStatus("시그널링 세션 생성 중...");
+
+    const sessionRes = await fetch(`/api/streams/${streamId}/control/session`, { method: "POST" });
+    if (!sessionRes.ok) {
+      setError(`Control session failed: ${sessionRes.status}`);
+      setControlStatus("세션 생성 실패");
+      return;
+    }
+    const sessionJson = (await sessionRes.json()) as { data: { sessionId: string } };
+    const sessionId = sessionJson.data.sessionId;
+    controlSessionIdRef.current = sessionId;
+    setControlEnabled(true);
+    setControlStatus("HTTP 제어 활성, DataChannel 협상 중...");
+
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    pcRef.current = pc;
+
+    const dc = pc.createDataChannel("remote-control", { ordered: true });
+    dcRef.current = dc;
+    dc.onopen = () => {
+      setControlConnected(true);
+      setControlStatus("연결됨");
+    };
+    dc.onclose = () => {
+      setControlConnected(false);
+      setControlStatus("연결 종료");
+    };
+
+    pc.onicecandidate = async (event) => {
+      if (!event.candidate) return;
+      await fetch(`/api/streams/${streamId}/control/signal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          role: "viewer",
+          candidate: event.candidate.candidate
+        })
+      });
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    await fetch(`/api/streams/${streamId}/control/signal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        role: "viewer",
+        offerSdp: offer.sdp
+      })
+    });
+
+    setControlStatus("에이전트 응답 대기 중... (미연결 시 HTTP 폴백)");
+    agentCandidateCursorRef.current = 0;
+    signalPollRef.current = window.setInterval(async () => {
+      try {
+        const pollRes = await fetch(
+          `/api/streams/${streamId}/control/signal?sessionId=${encodeURIComponent(sessionId)}&role=viewer`,
+          { cache: "no-store" }
+        );
+        if (!pollRes.ok) return;
+        const pollJson = (await pollRes.json()) as {
+          data: { answerSdp: string | null; candidates: string[] };
+        };
+        const answerSdp = pollJson.data.answerSdp;
+        if (answerSdp && !pc.currentRemoteDescription) {
+          await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+        }
+
+        const candidates = pollJson.data.candidates || [];
+        const startIndex = agentCandidateCursorRef.current;
+        for (let i = startIndex; i < candidates.length; i += 1) {
+          await pc.addIceCandidate({ candidate: candidates[i] });
+        }
+        agentCandidateCursorRef.current = candidates.length;
+      } catch {
+        // polling은 best-effort
+      }
+    }, 1000);
+  }
+
   useEffect(() => {
-    return () => teardown();
+    return () => {
+      teardown();
+      stopControl();
+    };
   }, []);
 
   return (
@@ -127,6 +289,39 @@ export function StreamLivePlayer({
           controls
           playsInline
           muted
+          tabIndex={0}
+          onMouseDown={(e) => {
+            if (!controlEnabled || !videoRef.current) return;
+            const meta = pointerMeta(videoRef.current, e);
+            sendControlEvent("mouse_down", { ...meta, button: e.button });
+            e.currentTarget.focus();
+          }}
+          onMouseUp={(e) => {
+            if (!controlEnabled || !videoRef.current) return;
+            const meta = pointerMeta(videoRef.current, e);
+            sendControlEvent("mouse_up", { ...meta, button: e.button });
+          }}
+          onMouseMove={(e) => {
+            if (!controlEnabled || !videoRef.current) return;
+            const now = Date.now();
+            if (now - lastMouseMoveAtRef.current < 50) return;
+            lastMouseMoveAtRef.current = now;
+            const meta = pointerMeta(videoRef.current, e);
+            sendControlEvent("mouse_move", meta);
+          }}
+          onWheel={(e) => {
+            if (!controlEnabled || !videoRef.current) return;
+            const meta = pointerMeta(videoRef.current, e);
+            sendControlEvent("mouse_wheel", { ...meta, dx: e.deltaX, dy: e.deltaY });
+          }}
+          onKeyDown={(e) => {
+            if (!controlEnabled) return;
+            sendControlEvent("key_down", { key: e.key, code: e.code });
+          }}
+          onKeyUp={(e) => {
+            if (!controlEnabled) return;
+            sendControlEvent("key_up", { key: e.key, code: e.code });
+          }}
         />
         {playing ? (
           <div className="pointer-events-none absolute right-3 top-3 rounded bg-red-600/90 px-2 py-1 text-xs font-semibold text-white shadow">
@@ -147,10 +342,22 @@ export function StreamLivePlayer({
             ■ 시청 중지
           </Button>
         )}
+        {!controlEnabled ? (
+          <Button variant="outline" onClick={startControl}>
+            제어 채널 연결 (Beta)
+          </Button>
+        ) : (
+          <Button variant="outline" onClick={stopControl}>
+            제어 채널 종료
+          </Button>
+        )}
         <span className="text-xs text-muted-foreground">
           이 시청 행위는 audit log에 기록되며, 클라이언트 화면에는 항상 ● REC 워터마크가 표시됩니다.
         </span>
       </div>
+      <p className="text-xs text-muted-foreground">
+        원격 제어 상태: <span className="font-mono">{controlStatus}</span>
+      </p>
       {error ? (
         <p className="rounded border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">{error}</p>
       ) : null}
