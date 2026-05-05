@@ -29,6 +29,7 @@ export function StreamLivePlayer({
   const hlsRef = useRef<Hls | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const controlSessionIdRef = useRef<string | null>(null);
   const signalPollRef = useRef<number | null>(null);
   const agentCandidateCursorRef = useRef(0);
@@ -61,8 +62,10 @@ export function StreamLivePlayer({
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    remoteStreamRef.current = null;
     if (videoRef.current) {
       videoRef.current.removeAttribute("src");
+      videoRef.current.srcObject = null;
       videoRef.current.load();
     }
   }
@@ -104,7 +107,6 @@ export function StreamLivePlayer({
     const dc = dcRef.current;
     if (dc && dc.readyState === "open") {
       dc.send(body);
-      return;
     }
     const sessionId = controlSessionIdRef.current;
     if (!sessionId) return;
@@ -138,11 +140,11 @@ export function StreamLivePlayer({
       const hls = new Hls({
         lowLatencyMode: true,
         // 일반 HLS(mpegts) 환경에서도 라이브 추종을 공격적으로 유지해 지연을 줄인다.
-        liveSyncDurationCount: 2,
-        liveMaxLatencyDurationCount: 4,
-        maxLiveSyncPlaybackRate: 1.2,
-        backBufferLength: 10,
-        maxBufferLength: 8
+        liveSyncDurationCount: 1,
+        liveMaxLatencyDurationCount: 2,
+        maxLiveSyncPlaybackRate: 1.5,
+        backBufferLength: 6,
+        maxBufferLength: 4
       });
       hlsRef.current = hls;
       hls.loadSource(current.hlsUrl);
@@ -206,6 +208,26 @@ export function StreamLivePlayer({
 
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
     pcRef.current = pc;
+    remoteStreamRef.current = new MediaStream();
+
+    pc.addTransceiver("video", { direction: "recvonly" });
+    pc.ontrack = (event) => {
+      if (!videoRef.current) return;
+      const [stream] = event.streams;
+      const remoteStream = stream ?? remoteStreamRef.current ?? new MediaStream();
+      if (!stream) {
+        remoteStream.addTrack(event.track);
+      }
+      teardown();
+      remoteStreamRef.current = remoteStream;
+      videoRef.current.srcObject = remoteStream;
+      void videoRef.current.play().then(() => {
+        setPlaying(true);
+        setControlStatus("WebRTC 영상 연결됨");
+      }).catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : "WebRTC playback error");
+      });
+    };
 
     const dc = pc.createDataChannel("remote-control", { ordered: true });
     dcRef.current = dc;

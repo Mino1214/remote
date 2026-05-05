@@ -1,0 +1,10 @@
+Build the Go helper from `webrtc-helper\` before running `build-installer.ps1`:
+
+  powershell -ExecutionPolicy Bypass -File .\webrtc-helper\build.ps1
+
+That command writes `webrtc-helper.exe` into this directory.
+
+The one-click installer remains a single `StreamMonitor-Setup.exe` file. When the helper
+binary exists, setup bundles it automatically and the agent starts it at runtime.
+
+If the helper is missing, installation still succeeds and the agent falls back to HLS-only mode.

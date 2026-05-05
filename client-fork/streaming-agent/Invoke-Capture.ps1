@@ -35,12 +35,13 @@ $wm = Escape-Drawtext $WatermarkText
 $vf = "drawtext=text='$wm':x=W-tw-20:y=20:fontsize=24:fontcolor=red@0.9:box=1:boxcolor=black@0.4:boxborderw=6"
 
 # HTTP HLS PUT
-# - hls_segment_filename은 절대 URL 패턴: dashboard가 .ts 세그먼트를 PUT 받는다.
+# - hls_segment_filename은 절대 URL 패턴: dashboard가 세그먼트를 PUT 받는다.
 # - playlist URL은 .m3u8: dashboard가 갱신본을 atomic rename으로 저장.
 # - Authorization 헤더는 ffmpeg의 HTTP 옵션을 통해 모든 PUT/DELETE에 적용.
 $base = $IngestBaseUrl.TrimEnd('/')
 $manifestUrl = "$base/index.m3u8"
-$segPattern  = "$base/seg_%05d.ts"
+$segPattern  = "$base/seg_%05d.m4s"
+$initPattern = "$base/init.mp4"
 $authHeader = "Authorization: Bearer $IngestSecret`r`n"
 
 # PowerShell 5.1(.NET Framework)는 ProcessStartInfo.ArgumentList를 지원하지 않으므로
@@ -82,8 +83,9 @@ $ffArgs = @(
   '-headers', $authHeader,
   '-hls_time', "$SegmentSeconds",
   '-hls_list_size', "$PlaylistSize",
-  '-hls_flags', 'delete_segments+independent_segments+omit_endlist',
-  '-hls_segment_type', 'mpegts',
+  '-hls_flags', 'delete_segments+independent_segments+omit_endlist+append_list',
+  '-hls_segment_type', 'fmp4',
+  '-hls_fmp4_init_filename', $initPattern,
   '-hls_segment_filename', $segPattern,
   $manifestUrl
 )

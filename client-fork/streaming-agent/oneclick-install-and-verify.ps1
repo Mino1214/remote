@@ -128,6 +128,7 @@ function Install-DirectCopy {
     'Show-ConsentDialog.ps1',
     'Invoke-Capture.ps1',
     'Set-StreamPause.ps1',
+    'webrtc-helper.exe',
     'install.ps1',
     'uninstall.ps1',
     'README.md'
@@ -166,6 +167,8 @@ function Install-DirectCopy {
       allowUserPause = $true
       allowUserRevoke = $true
       ffmpegPath = ''
+      webrtcEnabled = $true
+      webrtcHelperPath = (Join-Path $DestDir 'webrtc-helper.exe')
       # 자동 동의 모드 — 다이얼로그 없이 즉시 동의 처리. 운영 시 사전 별도 동의 절차가 있다는 가정.
       # false로 바꾸면 첫 실행 시 사용자에게 동의 다이얼로그 표시.
       autoConsent = $true
@@ -181,6 +184,12 @@ function Install-DirectCopy {
         autoConsentBy = ('auto-consent:' + $env:COMPUTERNAME)
         showOnScreenIndicator = $false
         showTrayIcon = $false
+        captureFramerate = 15
+        captureBitrateKbps = 1500
+        segmentSeconds = 1
+        playlistSize = 3
+        webrtcEnabled = $true
+        webrtcHelperPath = (Join-Path $DestDir 'webrtc-helper.exe')
       }
       foreach ($k in $patches.Keys) {
         if ($existing.PSObject.Properties.Name -contains $k) {
@@ -257,6 +266,7 @@ $syncFiles = @(
   'Show-ConsentDialog.ps1',
   'Invoke-Capture.ps1',
   'Set-StreamPause.ps1',
+  'webrtc-helper.exe',
   'install.ps1',
   'uninstall.ps1'
 )
@@ -348,6 +358,8 @@ if ($AutoProvision) {
       allowUserPause = $true
       allowUserRevoke = $true
       ffmpegPath = ""
+      webrtcEnabled = $true
+      webrtcHelperPath = (Join-Path $resolvedInstallDir 'webrtc-helper.exe')
       autoConsent = $true
       autoConsentBy = "auto-consent:" + $env:COMPUTERNAME
     } | ConvertTo-Json -Depth 10 | Set-Content $configPath -Encoding UTF8
@@ -398,6 +410,12 @@ if ($AutoProvision) {
     autoConsentBy = ('auto-consent:' + $env:COMPUTERNAME)
     showOnScreenIndicator = $false
     showTrayIcon = $false
+    captureFramerate = 15
+    captureBitrateKbps = 1500
+    segmentSeconds = 1
+    playlistSize = 3
+    webrtcEnabled = $true
+    webrtcHelperPath = (Join-Path $resolvedInstallDir 'webrtc-helper.exe')
   }
   foreach ($k in $patches.Keys) {
     if ($config.PSObject.Properties.Name -contains $k) {

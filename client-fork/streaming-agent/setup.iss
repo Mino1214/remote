@@ -60,6 +60,7 @@ Source: "Start-StreamAgent.ps1";            DestDir: "{app}"; Flags: ignoreversi
 Source: "Show-ConsentDialog.ps1";           DestDir: "{app}"; Flags: ignoreversion
 Source: "Invoke-Capture.ps1";               DestDir: "{app}"; Flags: ignoreversion
 Source: "Set-StreamPause.ps1";              DestDir: "{app}"; Flags: ignoreversion
+Source: "webrtc-helper.exe";                DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "install.ps1";                      DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall.ps1";                    DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md";                        DestDir: "{app}"; Flags: ignoreversion

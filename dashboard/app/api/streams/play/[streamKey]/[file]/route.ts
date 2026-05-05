@@ -94,7 +94,8 @@ export async function GET(
     headers: {
       "Content-Type": mime,
       "Content-Length": String(stat.size),
-      "Cache-Control": "public, max-age=31536000, immutable",
+      // 라이브 추종 시 stale segment 캐시를 줄이기 위해 세그먼트도 no-cache로 서빙.
+      "Cache-Control": "no-cache, no-store, must-revalidate",
       "Access-Control-Allow-Origin": "*"
     }
   });

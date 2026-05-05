@@ -153,6 +153,7 @@ if (-not (Test-Path $consentFlag)) {
 
 #region UI: tray + on-screen REC indicator
 $ffmpegProc = $null
+$webrtcProc = $null
 $state = [PSCustomObject]@{
   Paused = $false
   Revoked = $false
@@ -313,6 +314,62 @@ function Stop-Capture {
   $script:ffmpegProc = $null
 }
 
+function Convert-ToCmdArg([string]$s) {
+  if ($null -eq $s -or $s -eq '') { return '""' }
+  if ($s -notmatch '[\s"]') { return $s }
+  $escaped = [System.Text.RegularExpressions.Regex]::Replace(
+    $s, '(\\*)("|$)', { param($m)
+      $bs = $m.Groups[1].Value
+      $tail = $m.Groups[2].Value
+      if ($tail -eq '"') { return ($bs + $bs) + '\"' }
+      if ($tail -eq '') { return ($bs + $bs) }
+      return $m.Value
+    })
+  return '"' + $escaped + '"'
+}
+
+function Start-WebRtcHelper {
+  if ($state.Paused -or $state.Revoked) { return }
+  if ($config.webrtcEnabled -ne $true) { return }
+  $helperPath = [string](ValueOrDefault $config.webrtcHelperPath (Join-Path $scriptDir 'webrtc-helper.exe'))
+  if ([string]::IsNullOrWhiteSpace($helperPath) -or -not (Test-Path $helperPath)) {
+    Write-Log "webrtc helper not found: $helperPath (HLS fallback only)"
+    return
+  }
+  if ($null -ne $webrtcProc -and -not $webrtcProc.HasExited) { return }
+  try {
+    $helperStdout = Join-Path $logDir 'webrtc-helper-stdout.log'
+    $helperStderr = Join-Path $logDir 'webrtc-helper-stderr.log'
+    $args = @(
+      '--dashboard-base', $config.dashboardBase,
+      '--stream-id', $config.streamId,
+      '--stream-key', $config.streamKey,
+      '--ingest-secret', $config.ingestSecret,
+      '--ffmpeg-path', $config.ffmpegPath,
+      '--fps', (ValueOrDefault $config.captureFramerate 15),
+      '--bitrate-kbps', (ValueOrDefault $config.captureBitrateKbps 1500)
+    )
+    $argString = ($args | ForEach-Object { Convert-ToCmdArg ([string]$_) }) -join ' '
+    $script:webrtcProc = Start-Process -FilePath $helperPath `
+      -ArgumentList $argString `
+      -RedirectStandardOutput $helperStdout `
+      -RedirectStandardError $helperStderr `
+      -WindowStyle Hidden `
+      -PassThru
+    Write-Log "webrtc-helper started pid=$($script:webrtcProc.Id) path=$helperPath"
+  } catch {
+    Write-Log "webrtc-helper start failed: $($_.Exception.Message)"
+  }
+}
+
+function Stop-WebRtcHelper {
+  if ($null -ne $webrtcProc -and -not $webrtcProc.HasExited) {
+    try { $webrtcProc.Kill() } catch {}
+    $webrtcProc.WaitForExit(3000) | Out-Null
+  }
+  $script:webrtcProc = $null
+}
+
 function Start-Capture {
   if ($state.Paused -or $state.Revoked) { return }
   $ingestBase = "$($config.dashboardBase.TrimEnd('/'))/api/streams/ingest/$($config.streamKey)"
@@ -338,6 +395,7 @@ $miPause.Add_Click({
   } catch { Write-Log "pause api warn: $($_.Exception.Message)" }
   $state.Paused = $true
   Stop-Capture
+  Stop-WebRtcHelper
   Update-UI
   Write-Log "user paused"
 })
@@ -352,6 +410,7 @@ $miResume.Add_Click({
   $state.Paused = $false
   Update-UI
   Start-Capture
+  Start-WebRtcHelper
   Write-Log "user resumed"
 })
 
@@ -365,6 +424,7 @@ $miRevoke.Add_Click({
   if ($confirm -ne 'Yes') { return }
   $state.Revoked = $true
   Stop-Capture
+  Stop-WebRtcHelper
   if (Test-Path $consentFlag) { Remove-Item $consentFlag -Force }
   # 관리자에게는 단지 ingest가 끊긴 것으로 보이지만, dashboard에서도 PAUSED + 사유 기록
   try {
@@ -382,6 +442,7 @@ $miOpenLog.Add_Click({ Start-Process explorer.exe $logDir })
 $miExit.Add_Click({
   $state.Stopping = $true
   Stop-Capture
+  Stop-WebRtcHelper
   $tray.Visible = $false
   if ($indicator) { $indicator.Close() }
   [System.Windows.Forms.Application]::Exit()
@@ -400,6 +461,10 @@ $timer.Add_Tick({
   if ($null -eq $ffmpegProc -or $ffmpegProc.HasExited) {
     Write-Log "ffmpeg not running -> starting"
     try { Start-Capture } catch { Write-Log "start failed: $($_.Exception.Message)" }
+  }
+  if ($config.webrtcEnabled -eq $true -and ($null -eq $webrtcProc -or $webrtcProc.HasExited)) {
+    Write-Log "webrtc-helper not running -> starting"
+    try { Start-WebRtcHelper } catch { Write-Log "webrtc-helper restart failed: $($_.Exception.Message)" }
   }
 })
 $timer.Start()
@@ -439,4 +504,5 @@ Write-Log "agent started; entering message loop"
 [System.Windows.Forms.Application]::Run()
 Write-Log "agent exiting"
 Stop-Capture
+Stop-WebRtcHelper
 $tray.Visible = $false

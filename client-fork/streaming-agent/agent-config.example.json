@@ -28,5 +28,9 @@
   "allowUserRevoke": true,
 
   "_ffmpegPath_help": "비워두면 install.ps1 -DownloadFfmpeg 가 자동 채움.",
-  "ffmpegPath": ""
+  "ffmpegPath": "",
+
+  "_webrtc_helper_help": "원클릭 단일 exe에 함께 포함되는 WebRTC helper. 없으면 HLS만 사용.",
+  "webrtcEnabled": true,
+  "webrtcHelperPath": ""
 }
