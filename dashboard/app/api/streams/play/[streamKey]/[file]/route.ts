@@ -28,6 +28,35 @@ const MIME: Record<string, string> = {
   ".vtt": "text/vtt"
 };
 
+function playbackUriForManifestUri(streamKey: string, uri: string, token: string): string {
+  let fileName = uri.trim();
+  try {
+    const parsed = new URL(uri, "http://streammonitor.local");
+    fileName = parsed.pathname.split("/").pop() || "";
+  } catch {
+    fileName = uri.split("?")[0].split("/").pop() || "";
+  }
+
+  if (!resolveStreamFile(streamKey, fileName)) return uri;
+  return `/api/streams/play/${streamKey}/${encodeURIComponent(fileName)}?token=${encodeURIComponent(token)}`;
+}
+
+function rewriteManifestLine(streamKey: string, line: string, token: string): string {
+  const trimmed = line.trim();
+  if (!trimmed) return line;
+
+  if (trimmed.startsWith("#EXT-X-MAP:")) {
+    return line.replace(/URI="([^"]+)"/, (_match, uri: string) => {
+      return `URI="${playbackUriForManifestUri(streamKey, uri, token)}"`;
+    });
+  }
+
+  if (trimmed.startsWith("#")) return line;
+
+  const leadingWhitespace = line.match(/^\s*/)?.[0] ?? "";
+  return `${leadingWhitespace}${playbackUriForManifestUri(streamKey, trimmed, token)}`;
+}
+
 export async function GET(
   request: Request,
   { params }: { params: { streamKey: string; file: string } }
@@ -66,18 +95,13 @@ export async function GET(
   const isManifest = params.file.endsWith(".m3u8");
 
   if (isManifest) {
-    // 매니페스트 안의 상대 세그먼트 경로에 동일 token을 자동 부착해 클라이언트가 추가 호출 시 인증 통과.
+    // 매니페스트 안의 init/segment URI에 동일 token을 자동 부착해 클라이언트가 추가 호출 시 인증 통과.
+    // ffmpeg HTTP PUT 설정에 따라 상대 경로가 아니라 ingest 절대 URL이 들어올 수 있으므로
+    // EXT-X-MAP URI와 media segment line 모두 playback 엔드포인트로 강제 변환한다.
     const text = await fs.readFile(filePath, "utf8");
     const rewritten = text
       .split("\n")
-      .map((line) => {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith("#")) return line;
-        // 절대 URL은 그대로, 상대 경로(.ts/.m4s)에만 토큰 추가
-        if (/^https?:\/\//i.test(trimmed)) return line;
-        if (trimmed.includes("?")) return line; // 이미 쿼리 있으면 안 건드림
-        return `${trimmed}?token=${encodeURIComponent(token)}`;
-      })
+      .map((line) => rewriteManifestLine(params.streamKey, line, token))
       .join("\n");
     return new NextResponse(rewritten, {
       headers: {

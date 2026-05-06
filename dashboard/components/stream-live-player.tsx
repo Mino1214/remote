@@ -36,6 +36,7 @@ export function StreamLivePlayer({
   const controlSessionIdRef = useRef<string | null>(null);
   const signalPollRef = useRef<number | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const hlsRetryTimerRef = useRef<number | null>(null);
   const webrtcTimeoutRef = useRef<number | null>(null);
   const videoReadyRef = useRef(false);
   const hlsFallbackStartedRef = useRef(false);
@@ -46,7 +47,7 @@ export function StreamLivePlayer({
   const webrtcUnstableTimerRef = useRef<number | null>(null);
 
   const [connected, setConnected] = useState(false);
-  const [status, setStatus] = useState("연결 준비 중");
+  const [status, setStatus] = useState("화면 준비 중");
   const [error, setError] = useState<string | null>(null);
   const [hasVideoFrame, setHasVideoFrame] = useState(false);
   const shouldShowIndicator =
@@ -74,6 +75,10 @@ export function StreamLivePlayer({
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    if (hlsRetryTimerRef.current !== null) {
+      window.clearTimeout(hlsRetryTimerRef.current);
+      hlsRetryTimerRef.current = null;
+    }
     if (webrtcTimeoutRef.current !== null) {
       window.clearTimeout(webrtcTimeoutRef.current);
       webrtcTimeoutRef.current = null;
@@ -88,36 +93,61 @@ export function StreamLivePlayer({
     }
   }, []);
 
-  const startHlsFallback = useCallback(async () => {
+  const startHlsFallback = useCallback(async function startHlsPlayback() {
     if (!videoRef.current) return;
     if (hlsFallbackStartedRef.current) return;
     hlsFallbackStartedRef.current = true;
+
+    const scheduleRetry = (message: string) => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      hlsFallbackStartedRef.current = false;
+      setStatus(message);
+      if (hlsRetryTimerRef.current !== null) return;
+      hlsRetryTimerRef.current = window.setTimeout(() => {
+        hlsRetryTimerRef.current = null;
+        void startHlsPlayback();
+      }, 1200);
+    };
+
     try {
       const el = videoRef.current;
-      el.pause();
-      el.srcObject = null;
-      el.removeAttribute("src");
+      setStatus(videoReadyRef.current ? "화면 재생 중" : "화면 대기 중");
+      setError(null);
+
       const tokenRes = await fetch(`/api/streams/${streamId}/playback-token`, { cache: "no-store" });
       if (!tokenRes.ok) {
-        hlsFallbackStartedRef.current = false;
-        setError(`HLS token failed: ${tokenRes.status}`);
+        scheduleRetry(`HLS token 대기 중: ${tokenRes.status}`);
         return;
       }
       const tokenJson = (await tokenRes.json()) as { data: { hlsUrl: string } };
       const hlsUrl = tokenJson.data.hlsUrl;
+      const manifestRes = await fetch(hlsUrl, { cache: "no-store" });
+      if (!manifestRes.ok) {
+        scheduleRetry(`화면 세그먼트 대기 중: ${manifestRes.status}`);
+        return;
+      }
+
+      el.pause();
+      el.srcObject = null;
+      el.removeAttribute("src");
 
       if (Hls.isSupported()) {
         const hls = new Hls({
           lowLatencyMode: true,
           liveSyncDurationCount: 1,
-          liveMaxLatencyDurationCount: 3
+          liveMaxLatencyDurationCount: 3,
+          maxBufferLength: 4,
+          backBufferLength: 0
         });
         hlsRef.current = hls;
         hls.loadSource(hlsUrl);
         hls.attachMedia(videoRef.current);
         hls.on(Hls.Events.ERROR, (_evt, data) => {
           if (data.fatal) {
-            setError(`HLS fallback error: ${data.details}`);
+            scheduleRetry(`화면 세그먼트 재시도 중: ${data.details}`);
           }
         });
       } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
@@ -131,11 +161,10 @@ export function StreamLivePlayer({
       await videoRef.current.play();
       videoReadyRef.current = true;
       setConnected(true);
-      setStatus("HLS fallback 재생 중");
+      setStatus(controlSessionIdRef.current ? "화면 재생 중 · RTC 제어 연결 중" : "화면 재생 중");
     } catch (e) {
       if (isBenignPlayInterrupt(e)) return;
-      hlsFallbackStartedRef.current = false;
-      setError(e instanceof Error ? e.message : "HLS fallback failed");
+      scheduleRetry(e instanceof Error ? `화면 재시도 중: ${e.message}` : "화면 재시도 중");
     }
   }, [isBenignPlayInterrupt, streamId]);
 
@@ -199,6 +228,12 @@ export function StreamLivePlayer({
     return { x, y, w: rect.width, h: rect.height };
   }, []);
 
+  const markVideoFrame = useCallback(() => {
+    videoReadyRef.current = true;
+    setHasVideoFrame(true);
+    setConnected(true);
+  }, []);
+
   const startControl = useCallback(async () => {
     setError(null);
     if (typeof RTCPeerConnection === "undefined") {
@@ -208,13 +243,12 @@ export function StreamLivePlayer({
     }
 
     stopControl();
-    teardownMedia();
-    setStatus("시그널링 세션 생성 중");
+    setStatus(videoReadyRef.current ? "화면 재생 중 · RTC 제어 연결 중" : "시그널링 세션 생성 중");
 
     const sessionRes = await fetch(`/api/streams/${streamId}/control/session`, { method: "POST" });
     if (!sessionRes.ok) {
       setError(`Control session failed: ${sessionRes.status}`);
-      setStatus("세션 생성 실패 · HLS 폴백 시도");
+      setStatus(videoReadyRef.current ? "화면 재생 중 · RTC 세션 실패" : "세션 생성 실패 · 화면 재시도");
       await startHlsFallback();
       return;
     }
@@ -230,6 +264,10 @@ export function StreamLivePlayer({
     pc.addTransceiver("video", { direction: "recvonly" });
     pc.ontrack = (event) => {
       if (!videoRef.current) return;
+      if (hlsRef.current || hlsFallbackStartedRef.current) {
+        setStatus("화면 재생 중 · RTC 제어 연결됨");
+        return;
+      }
       const [stream] = event.streams;
       const remoteStream = stream ?? remoteStreamRef.current ?? new MediaStream();
       if (!stream) {
@@ -242,6 +280,7 @@ export function StreamLivePlayer({
         .then(() => {
           videoReadyRef.current = true;
           setConnected(true);
+          setHasVideoFrame(true);
           setStatus("RTC 제어 연결됨");
         })
         .catch((e: unknown) => {
@@ -253,11 +292,11 @@ export function StreamLivePlayer({
     const dc = pc.createDataChannel("remote-control", { ordered: true });
     dcRef.current = dc;
     dc.onopen = () => {
-      setStatus("RTC 제어 연결됨 (영상 대기)");
+      setStatus(videoReadyRef.current ? "화면 재생 중 · RTC 제어 연결됨" : "RTC 제어 연결됨 (영상 대기)");
     };
     dc.onclose = () => {
-      setConnected(false);
-      setStatus("연결 종료");
+      if (!videoReadyRef.current) setConnected(false);
+      setStatus(videoReadyRef.current ? "화면 재생 중 · RTC 제어 종료" : "연결 종료");
     };
 
     pc.onconnectionstatechange = () => {
@@ -266,13 +305,13 @@ export function StreamLivePlayer({
         webrtcUnstableTimerRef.current = null;
       }
 
-      if (pc.connectionState === "connected" && !videoReadyRef.current) {
-        setStatus("RTC 연결됨 (영상 대기)");
+      if (pc.connectionState === "connected") {
+        setStatus(videoReadyRef.current ? "화면 재생 중 · RTC 제어 연결됨" : "RTC 연결됨 (영상 대기)");
       }
 
       if (pc.connectionState === "failed") {
-        setConnected(false);
-        setStatus("연결 불안정 · HLS 전환");
+        if (!videoReadyRef.current) setConnected(false);
+        setStatus(videoReadyRef.current ? "화면 재생 중 · RTC 재연결 대기" : "연결 불안정 · 화면 재시도");
         void startHlsFallback();
         return;
       }
@@ -283,8 +322,8 @@ export function StreamLivePlayer({
           if (pcRef.current !== pc) return;
           const st = pc.connectionState;
           if (st === "disconnected" || st === "failed") {
-            setConnected(false);
-            setStatus("연결 불안정 · HLS 전환");
+            if (!videoReadyRef.current) setConnected(false);
+            setStatus(videoReadyRef.current ? "화면 재생 중 · RTC 재연결 대기" : "연결 불안정 · 화면 재시도");
             void startHlsFallback();
           }
         }, 4000);
@@ -317,11 +356,11 @@ export function StreamLivePlayer({
       })
     });
 
-    setStatus("에이전트 응답 대기 중");
+    setStatus(videoReadyRef.current ? "화면 재생 중 · 에이전트 응답 대기" : "에이전트 응답 대기 중");
     // WebRTC가 짧은 시간 내 연결되지 않으면 자동으로 HLS로 폴백한다.
     webrtcTimeoutRef.current = window.setTimeout(() => {
       if (!videoReadyRef.current) {
-        setStatus("RTC 대기 지연 · HLS 폴백");
+        setStatus("RTC 대기 지연 · 화면 재시도");
         void startHlsFallback();
       }
     }, 4500);
@@ -351,18 +390,19 @@ export function StreamLivePlayer({
         // polling is best-effort
       }
     }, 1000);
-  }, [isBenignPlayInterrupt, startHlsFallback, stopControl, streamId, teardownMedia]);
+  }, [isBenignPlayInterrupt, startHlsFallback, stopControl, streamId]);
 
   useEffect(() => {
     if (autoConnect && !startedRef.current) {
       startedRef.current = true;
+      void startHlsFallback();
       void startControl();
     }
     return () => {
       teardownMedia();
       stopControl();
     };
-  }, [autoConnect, startControl, stopControl, teardownMedia]);
+  }, [autoConnect, startControl, startHlsFallback, stopControl, teardownMedia]);
 
   return (
     <div className={compact ? "h-full bg-black" : "space-y-3"}>
@@ -373,8 +413,9 @@ export function StreamLivePlayer({
           playsInline
           muted
           tabIndex={0}
-          onLoadedData={() => setHasVideoFrame(true)}
-          onCanPlay={() => setHasVideoFrame(true)}
+          onLoadedData={markVideoFrame}
+          onCanPlay={markVideoFrame}
+          onPlaying={markVideoFrame}
           onMouseDown={(e) => {
             if (!videoRef.current) return;
             const meta = pointerMeta(videoRef.current, e);
