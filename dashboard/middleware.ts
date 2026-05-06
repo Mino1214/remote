@@ -2,36 +2,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { applyNoStoreHeaders } from "@/lib/no-store-headers";
 
-function isAllowedIp(request: NextRequest) {
-  const host = request.headers.get("host") || "";
-  const isLocalHost = host.startsWith("localhost") || host.startsWith("127.0.0.1") || host.startsWith("[::1]");
-  if (isLocalHost) {
-    return true;
-  }
-
-  const allowlist = process.env.DASHBOARD_IP_ALLOWLIST;
-  if (!allowlist) return true;
-
-  const allowed = allowlist
-    .split(",")
-    .map((ip) => ip.trim())
-    .filter(Boolean);
-
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  const realIp = request.headers.get("x-real-ip");
-  // Cloudflare Tunnel/프록시 뒤에서는 XFF 없이 cf-connecting-ip 만 오는 경우가 있다.
-  const cfConnectingIp = request.headers.get("cf-connecting-ip");
-  const clientIp = (
-    forwardedFor?.split(",")[0]?.trim() ||
-    realIp?.trim() ||
-    cfConnectingIp?.trim() ||
-    ""
-  );
-
-  if (!clientIp) return false;
-  return allowed.includes(clientIp);
-}
-
 /**
  * Streaming subsystem 공개 엔드포인트 (NextAuth 세션 불필요).
  * - /api/streams/{id}/consent             : agent가 ingestSecret으로 동의 확정.
@@ -66,13 +36,6 @@ export async function middleware(request: NextRequest) {
   const isLoginPage = request.nextUrl.pathname === "/login";
   if (isAuthApi || isStreamingAgentEndpoint(request.nextUrl.pathname)) {
     return attachNoStoreUnlessStreaming(request, NextResponse.next());
-  }
-
-  if (!isAllowedIp(request)) {
-    return attachNoStoreUnlessStreaming(
-      request,
-      NextResponse.json({ error: "Forbidden by IP allowlist" }, { status: 403 })
-    );
   }
 
   if (isLoginPage) {
