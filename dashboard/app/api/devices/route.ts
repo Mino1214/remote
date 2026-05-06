@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireServerSession } from "@/lib/session";
-import { rustdeskApi } from "@/lib/rustdesk-api";
+import { rustdeskApi, type RustdeskDevice } from "@/lib/rustdesk-api";
 
 export async function GET() {
   try {
@@ -9,8 +9,18 @@ export async function GET() {
     // RustDesk hbbs에 등록된 device + DB의 deviceMeta + ingest 중인 stream의 deviceId
     // 셋의 합집합을 반환한다. RustDesk 없이 streaming-only로 provision된 디바이스도
     // /api/agent/provision이 deviceMeta를 만들고 stream을 ingest하기 시작하면 즉시 목록에 뜬다.
-    const [remoteDevices, metas, streamDevices] = await Promise.all([
-      rustdeskApi.listDevices(),
+    //
+    // rustdesk-api(네트워크/JWT/피어 조회) 실패 시 전체 500이 되면 provision만 된 기기도 "안 보임"으로
+    // 오해되므로, 원격 목록은 비우고 DB 기반 합집합만이라도 반환한다.
+    let remoteDevices: RustdeskDevice[] = [];
+    try {
+      remoteDevices = await rustdeskApi.listDevices();
+    } catch (error) {
+      console.error("[api/devices] rustdeskApi.listDevices threw", error);
+      remoteDevices = [];
+    }
+
+    const [metas, streamDevices] = await Promise.all([
       prisma.deviceMeta.findMany(),
       prisma.stream.findMany({
         select: { deviceId: true, lastSeenAt: true },

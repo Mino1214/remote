@@ -167,7 +167,8 @@ const adapter: RustdeskAdapter = {
           }
         ];
       }
-      throw error;
+      console.error("[rustdesk-api] listDevices failed", error);
+      return [];
     }
   }
 };
