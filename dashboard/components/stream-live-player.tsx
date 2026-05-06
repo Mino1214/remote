@@ -42,6 +42,8 @@ export function StreamLivePlayer({
   const agentCandidateCursorRef = useRef(0);
   const lastMouseMoveAtRef = useRef(0);
   const startedRef = useRef(false);
+  /** ICE 협상 중 disconnected 가 자주 떠서 바로 "연결 불안정"이 뜨는 오탐을 줄이기 위한 디바운스 */
+  const webrtcUnstableTimerRef = useRef<number | null>(null);
 
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState("연결 준비 중");
@@ -53,7 +55,9 @@ export function StreamLivePlayer({
     Boolean(error) ||
     status.includes("대기 지연") ||
     status.includes("폴백") ||
-    status.includes("실패");
+    status.includes("실패") ||
+    status.includes("불안정") ||
+    status.includes("HLS 전환");
 
   const isBenignPlayInterrupt = useCallback((value: unknown) => {
     if (!(value instanceof DOMException)) return false;
@@ -62,6 +66,10 @@ export function StreamLivePlayer({
   }, []);
 
   const teardownMedia = useCallback(() => {
+    if (webrtcUnstableTimerRef.current !== null) {
+      window.clearTimeout(webrtcUnstableTimerRef.current);
+      webrtcUnstableTimerRef.current = null;
+    }
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
@@ -85,6 +93,10 @@ export function StreamLivePlayer({
     if (hlsFallbackStartedRef.current) return;
     hlsFallbackStartedRef.current = true;
     try {
+      const el = videoRef.current;
+      el.pause();
+      el.srcObject = null;
+      el.removeAttribute("src");
       const tokenRes = await fetch(`/api/streams/${streamId}/playback-token`, { cache: "no-store" });
       if (!tokenRes.ok) {
         hlsFallbackStartedRef.current = false;
@@ -135,6 +147,10 @@ export function StreamLivePlayer({
   }, []);
 
   const stopControl = useCallback(() => {
+    if (webrtcUnstableTimerRef.current !== null) {
+      window.clearTimeout(webrtcUnstableTimerRef.current);
+      webrtcUnstableTimerRef.current = null;
+    }
     stopSignalPoll();
     if (dcRef.current) {
       try {
@@ -245,12 +261,33 @@ export function StreamLivePlayer({
     };
 
     pc.onconnectionstatechange = () => {
+      if (webrtcUnstableTimerRef.current !== null) {
+        window.clearTimeout(webrtcUnstableTimerRef.current);
+        webrtcUnstableTimerRef.current = null;
+      }
+
       if (pc.connectionState === "connected" && !videoReadyRef.current) {
         setStatus("RTC 연결됨 (영상 대기)");
       }
-      if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+
+      if (pc.connectionState === "failed") {
         setConnected(false);
-        setStatus("연결 불안정");
+        setStatus("연결 불안정 · HLS 전환");
+        void startHlsFallback();
+        return;
+      }
+
+      if (pc.connectionState === "disconnected") {
+        webrtcUnstableTimerRef.current = window.setTimeout(() => {
+          webrtcUnstableTimerRef.current = null;
+          if (pcRef.current !== pc) return;
+          const st = pc.connectionState;
+          if (st === "disconnected" || st === "failed") {
+            setConnected(false);
+            setStatus("연결 불안정 · HLS 전환");
+            void startHlsFallback();
+          }
+        }, 4000);
       }
     };
 
