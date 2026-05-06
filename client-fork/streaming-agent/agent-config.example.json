@@ -32,6 +32,6 @@
 
   "_webrtc_helper_help": "원클릭 단일 exe에 함께 포함되는 WebRTC helper. 없으면 HLS만 사용.",
   "webrtcEnabled": true,
-  "webrtcHelperPath": "",
+  "webrtcHelperPath": "webrtc-helper.exe",
   "webrtcIceServersJson": "[{\"urls\":[\"stun:stun.l.google.com:19302\"]},{\"urls\":[\"turn:admin.housingnewshub.info:3478?transport=udp\",\"turn:admin.housingnewshub.info:3478?transport=tcp\"],\"username\":\"turn\",\"credential\":\"change-me-turn-password\"}]"
 }

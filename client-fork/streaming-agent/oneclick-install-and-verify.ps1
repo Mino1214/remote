@@ -20,6 +20,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# PowerShell 5.1은 기본 TLS 설정이 환경에 따라 TLS1.2를 안 쓸 수 있어,
+# HTTPS 호출(프로비저닝/다운로드)이 조용히 실패하는 케이스가 있다.
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+} catch {}
+
 # 무음 모드(install.vbs를 통해 hidden으로 실행)에서도 모든 출력을 사후 검토할 수 있도록
 # Start-Transcript로 install.log에 기록한다. 콘솔 창이 없어도 Write-Host 등이 그대로 잡힘.
 $installLogDir = Join-Path $env:PROGRAMDATA 'StreamMonitor'
@@ -383,8 +389,29 @@ if ($AutoProvision) {
     if (-not [string]::IsNullOrWhiteSpace([string]$config.dashboardBase)) {
       $DashboardBase = [string]$config.dashboardBase
     }
-    Write-Host "기존 streamId 재사용: $StreamId (중복 프로비저닝 생략)"
-  } else {
+
+    # 기존 자격증명이 서버에서 여전히 유효한지 확인.
+    # - 유효하면 그대로 재사용(중복 provision 방지)
+    # - 무효(서버 DB 리셋/환경 변경/잘못된 config)면 자동 재-provision
+    $reuseOk = $false
+    try {
+      $probeUrl = "$($DashboardBase.TrimEnd('/'))/api/streams/ingest/$([string]$config.streamKey)/probe.vtt"
+      $probeHeaders = @{ Authorization = ('Bearer ' + [string]$config.ingestSecret) }
+      $probe = Invoke-WebRequest -Method DELETE -Uri $probeUrl -Headers $probeHeaders -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop
+      if ($probe.StatusCode -ge 200 -and $probe.StatusCode -lt 300) { $reuseOk = $true }
+    } catch {
+      # ignore; reuseOk remains false
+    }
+
+    if ($reuseOk) {
+      Write-Host "기존 streamId 재사용: $StreamId (자격증명 유효)"
+    } else {
+      Write-Warning "기존 자격증명 검증 실패 → 재프로비저닝 진행"
+      $hasExistingProvision = $false
+    }
+  }
+
+  if (-not $hasExistingProvision) {
     $provisionUrl = "$($DashboardBase.TrimEnd('/'))/api/agent/provision"
     $payloadObj = @{
       deviceId = $DeviceId
@@ -395,8 +422,21 @@ if ($AutoProvision) {
     if (-not [string]::IsNullOrWhiteSpace($WatermarkText)) { $payloadObj.watermarkText = $WatermarkText }
     if (-not [string]::IsNullOrWhiteSpace($OwnerEmail)) { $payloadObj.ownerEmail = $OwnerEmail }
     $payload = $payloadObj | ConvertTo-Json -Compress
-
-    $resp = Invoke-RestMethod -Method POST -Uri $provisionUrl -Body $payload -ContentType "application/json"
+    try {
+      $resp = Invoke-RestMethod -Method POST -Uri $provisionUrl -Body $payload -ContentType "application/json" -TimeoutSec 15
+    } catch {
+      $detail = $_.Exception.Message
+      try {
+        if ($_.Exception.Response) {
+          $status = [int]$_.Exception.Response.StatusCode
+          $sr = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+          $body = $sr.ReadToEnd()
+          $sr.Close()
+          throw "프로비저닝 실패: HTTP $status`n$body"
+        }
+      } catch {}
+      throw "프로비저닝 실패: $detail"
+    }
     if (-not $resp.data.streamId -or -not $resp.data.streamKey -or -not $resp.data.ingestSecret) {
       throw "프로비저닝 응답이 올바르지 않습니다."
     }
@@ -500,6 +540,8 @@ if ($needFfmpeg) {
 $taskName = 'StreamMonitorAgent'
 $ps1Path = "$resolvedInstallDir\Start-StreamAgent.ps1"
 $taskAction = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ps1Path`""
+$schtasks = Join-Path $env:WINDIR 'System32\schtasks.exe'
+if (-not (Test-Path $schtasks)) { $schtasks = 'schtasks.exe' }
 
 # 설치를 트리거한 실제 인터랙티브 사용자 식별 (관리자 권한으로 실행되더라도 동일 SID/이름)
 $runAs = if ([string]::IsNullOrWhiteSpace($env:USERNAME)) { '' } else { "$env:USERDOMAIN\$env:USERNAME" }
@@ -508,16 +550,16 @@ if ([string]::IsNullOrWhiteSpace($runAs) -or $runAs -like '\*') { $runAs = $env:
 $oldEAP = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
-  & schtasks.exe /Delete /TN $taskName /F *> $null
+  & $schtasks /Delete /TN $taskName /F *> $null
 
   # 1차: /RU + /IT 로 명시적 사용자 + interactive
   $createArgs = @('/Create','/SC','ONLOGON','/TN',$taskName,'/TR',$taskAction,'/RL','LIMITED','/IT','/F','/RU',$runAs)
-  $createOutput = & schtasks.exe @createArgs 2>&1
+  $createOutput = & $schtasks @createArgs 2>&1
   $createExit = $LASTEXITCODE
 
   if ($createExit -ne 0) {
     # 2차 fallback: /RU 없이 (현재 사용자 컨텍스트가 자동 적용)
-    $createOutput = & schtasks.exe /Create /SC ONLOGON /TN $taskName /TR $taskAction /RL LIMITED /IT /F 2>&1
+    $createOutput = & $schtasks /Create /SC ONLOGON /TN $taskName /TR $taskAction /RL LIMITED /IT /F 2>&1
     $createExit = $LASTEXITCODE
   }
 } finally {

@@ -25,12 +25,19 @@
 param(
   [string]$Version = "0.2.0",
   [string]$ISCC = (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
-  [string]$PublicDir = (Join-Path (Split-Path -Parent $PSScriptRoot) '..\dashboard\public')
+  [string]$PublicDir = ""
 )
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $here
+
+if ([string]::IsNullOrWhiteSpace($PublicDir)) {
+  # 실행 방식에 따라 $PSScriptRoot/$MyInvocation.MyCommand.Path 가 비어 있을 수 있어,
+  # 현재 스크립트 파일 위치($here) 기준으로 dashboard/public 을 계산한다.
+  $candidate = Join-Path $here '..\..\dashboard\public'
+  $PublicDir = (Resolve-Path $candidate -ErrorAction Stop).Path
+}
 
 if (-not (Test-Path $ISCC)) {
   throw "Inno Setup 6 (ISCC.exe) 가 없습니다: $ISCC. https://jrsoftware.org/isdl.php 에서 설치하세요."
@@ -66,7 +73,7 @@ $dest = Join-Path $agentDir 'StreamMonitor-Setup.exe'
 Copy-Item -Path $exePath -Destination $dest -Force
 Write-Host "==> 배포 완료: $dest" -ForegroundColor Green
 Write-Host ""
-Write-Host "다음 단계:" -ForegroundColor Cyan
-Write-Host "  1. dashboard에서 prisma migrate (또는 db push) 실행 — ProvisionToken 모델 반영"
-Write-Host "  2. dashboard 재배포"
-Write-Host "  3. /devices 페이지에서 '+ 새 PC 등록' 클릭 → 자동 다운로드 확인"
+Write-Host "Next steps:" -ForegroundColor Cyan
+Write-Host "  1) Run prisma migrate (or db push) on dashboard"
+Write-Host "  2) Redeploy dashboard"
+Write-Host "  3) In dashboard, go to /devices and download installer"

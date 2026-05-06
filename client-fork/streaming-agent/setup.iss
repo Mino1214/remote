@@ -5,8 +5,9 @@
 ;   - 토큰 없이 더블클릭 → UAC 한 번 → 끝. 서버는 자동으로 deviceId 등록.
 ;   - 토큰 강제가 필요한 운영 환경에서는 dashboard 측에 환경 변수
 ;     STREAM_AGENT_REQUIRE_TOKEN=true 를 설정하고, /api/agent/tokens 로
-;     1회용 토큰 발급 후 다음과 같이 실행:
-;       StreamMonitor-Setup.exe /TOKEN=tk_xxxxxxxx....
+;     1회용 토큰 발급 후 다운로드되는 파일명을 그대로 실행:
+;       StreamMonitor-Setup-<token>.exe
+;     (호환을 위해 /TOKEN=tk_xxxxxxxx... 파라미터도 지원)
 ;
 ; 빌드 방법 (개발자 PC에서 1회):
 ;   & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" .\setup.iss
@@ -68,7 +69,8 @@ Source: "logo.ico";                         DestDir: "{app}"; Flags: ignoreversi
 
 [Run]
 ; oneclick-install-and-verify.ps1 한 줄로 모든 설치/프로비저닝/ffmpeg/Task Scheduler/에이전트 기동을 처리.
-; - 토큰 모드(고급): /TOKEN=tk_xxxxxxxx... 로 실행하면 [Code] 섹션이 oneclick에 -ProvisionToken으로 넘긴다.
+; - 토큰 모드(고급): StreamMonitor-Setup-<token>.exe 로 실행하거나, /TOKEN=tk_xxxxxxxx... 로 실행하면
+;   [Code] 섹션이 oneclick에 -ProvisionToken으로 넘긴다.
 ; - 기본: 토큰 없이 open enrollment.
 ; - nowait: wizard가 ps1 종료 안 기다리고 바로 닫힘 (ps1은 백그라운드에서 계속 돔).
 ; - runhidden: ps1 콘솔 창 자체도 안 뜸.
@@ -204,12 +206,42 @@ begin
   Result := True;
 end;
 
-// /TOKEN=... 인자가 유효하면 oneclick에 -ProvisionToken으로 넘긴다. 없으면 빈 문자열.
+// 다운로드 파일명이 StreamMonitor-Setup-<token>.exe 인 경우에도 토큰을 추출한다.
+// (대시보드가 Content-Disposition filename에 토큰만 박는 모델)
+function TryExtractTokenFromExeName(): String;
+var
+  Name: String;
+  LowerName: String;
+  Prefix: String;
+  Suffix: String;
+  Tok: String;
+  TokLen: Integer;
+begin
+  Result := '';
+  Name := ExtractFileName(ExpandConstant('{srcexe}'));
+  LowerName := Lowercase(Name);
+  Prefix := 'streammonitor-setup-';
+  Suffix := '.exe';
+
+  if Pos(Prefix, LowerName) <> 1 then Exit;
+  if Copy(LowerName, Length(LowerName) - Length(Suffix) + 1, Length(Suffix)) <> Suffix then Exit;
+
+  TokLen := Length(Name) - Length(Prefix) - Length(Suffix);
+  if TokLen <= 0 then Exit;
+  Tok := Copy(Name, Length(Prefix) + 1, TokLen);
+
+  if LooksLikeValidToken(Tok) then
+    Result := Tok;
+end;
+
+// /TOKEN=... 인자가 유효하거나, 파일명에서 토큰을 추출할 수 있으면 oneclick에 -ProvisionToken으로 넘긴다. 없으면 빈 문자열.
 function GetTokenArg(Param: String): String;
 var
   Tok: String;
 begin
   Tok := ExpandConstant('{param:TOKEN|}');
+  if not LooksLikeValidToken(Tok) then
+    Tok := TryExtractTokenFromExeName();
   if LooksLikeValidToken(Tok) then
     Result := '-ProvisionToken "' + Tok + '"'
   else

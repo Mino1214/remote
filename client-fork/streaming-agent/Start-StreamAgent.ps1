@@ -340,19 +340,19 @@ function Start-WebRtcHelper {
   try {
     $helperStdout = Join-Path $logDir 'webrtc-helper-stdout.log'
     $helperStderr = Join-Path $logDir 'webrtc-helper-stderr.log'
-    $args = @(
-      '--dashboard-base', $config.dashboardBase,
-      '--stream-id', $config.streamId,
-      '--stream-key', $config.streamKey,
-      '--ingest-secret', $config.ingestSecret,
-      '--ffmpeg-path', $config.ffmpegPath,
-      '--fps', (ValueOrDefault $config.captureFramerate 15),
-      '--bitrate-kbps', (ValueOrDefault $config.captureBitrateKbps 1500)
+    $helperArgs = @(
+      '--dashboard-base', [string]$config.dashboardBase,
+      '--stream-id', [string]$config.streamId,
+      '--stream-key', [string]$config.streamKey,
+      '--ingest-secret', [string]$config.ingestSecret,
+      '--ffmpeg-path', [string]$config.ffmpegPath,
+      '--fps', [string](ValueOrDefault $config.captureFramerate 15),
+      '--bitrate-kbps', [string](ValueOrDefault $config.captureBitrateKbps 1500)
     )
     if (-not [string]::IsNullOrWhiteSpace([string]$config.webrtcIceServersJson)) {
-      $args += @('--ice-servers-json', [string]$config.webrtcIceServersJson)
+      $helperArgs += @('--ice-servers-json', [string]$config.webrtcIceServersJson)
     }
-    $argString = ($args | ForEach-Object { Convert-ToCmdArg ([string]$_) }) -join ' '
+    $argString = ($helperArgs | ForEach-Object { Convert-ToCmdArg ([string]$_) }) -join ' '
     $script:webrtcProc = Start-Process -FilePath $helperPath `
       -ArgumentList $argString `
       -RedirectStandardOutput $helperStdout `
