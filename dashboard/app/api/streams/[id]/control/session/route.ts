@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireServerSession } from "@/lib/session";
 import { writeAuditLog } from "@/lib/audit";
 import { createControlSession, getLatestControlSessionForStream } from "@/lib/control-signaling";
-import { hashIngestSecret, timingSafeEqualHex } from "@/lib/streams";
+import { getWebRtcIceServersJson, hashIngestSecret, timingSafeEqualHex } from "@/lib/streams";
 
 function getBearerToken(request: Request): string | null {
   const auth = request.headers.get("authorization");
@@ -75,14 +75,20 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
     const latest = getLatestControlSessionForStream(stream.id);
     if (!latest) {
-      return NextResponse.json({ data: null });
+      return NextResponse.json({
+        data: {
+          sessionId: null,
+          webrtcIceServersJson: getWebRtcIceServersJson()
+        }
+      });
     }
 
     return NextResponse.json({
       data: {
         sessionId: latest.id,
         createdAt: Math.floor(latest.createdAt / 1000),
-        expiresAt: Math.floor(latest.expiresAt / 1000)
+        expiresAt: Math.floor(latest.expiresAt / 1000),
+        webrtcIceServersJson: getWebRtcIceServersJson()
       }
     });
   } catch (error) {

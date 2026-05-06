@@ -10,8 +10,10 @@ COPY . .
 # Next.js middleware(next-auth getToken)에 시크릿이 빌드 시점에 박혀야 함. 런타임 .env만 주면 401 고착.
 ARG NEXTAUTH_SECRET
 ARG NEXTAUTH_URL
+ARG NEXT_PUBLIC_WEBRTC_ICE_SERVERS
 ENV NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
 ENV NEXTAUTH_URL=${NEXTAUTH_URL}
+ENV NEXT_PUBLIC_WEBRTC_ICE_SERVERS=${NEXT_PUBLIC_WEBRTC_ICE_SERVERS}
 RUN npx prisma generate && npm run build
 
 FROM node:22-alpine AS runner

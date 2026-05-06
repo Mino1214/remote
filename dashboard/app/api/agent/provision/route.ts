@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
-import { generateStreamCredentials, getDefaultRetentionDays, getDefaultWatermark } from "@/lib/streams";
+import {
+  generateStreamCredentials,
+  getDefaultRetentionDays,
+  getDefaultWatermark,
+  getWebRtcIceServersJson
+} from "@/lib/streams";
 import { consumeProvisionToken, validateProvisionToken } from "@/lib/provision-tokens";
 
 const schema = z.object({
@@ -111,6 +116,7 @@ export async function POST(request: Request) {
         streamKey: stream.streamKey,
         ingestSecret,
         dashboardBase,
+        webrtcIceServersJson: getWebRtcIceServersJson(),
         status: stream.status,
         notice: "Provision 완료. 클라이언트 사용자 동의 후 ACTIVE로 전환됩니다."
       }

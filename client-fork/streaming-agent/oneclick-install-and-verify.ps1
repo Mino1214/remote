@@ -175,6 +175,7 @@ function Install-DirectCopy {
       ffmpegPath = ''
       webrtcEnabled = $true
       webrtcHelperPath = (Join-Path $DestDir 'webrtc-helper.exe')
+      webrtcIceServersJson = ''
       # 자동 동의 모드 — 다이얼로그 없이 즉시 동의 처리. 운영 시 사전 별도 동의 절차가 있다는 가정.
       # false로 바꾸면 첫 실행 시 사용자에게 동의 다이얼로그 표시.
       autoConsent = $true
@@ -366,6 +367,7 @@ if ($AutoProvision) {
       ffmpegPath = ""
       webrtcEnabled = $true
       webrtcHelperPath = (Join-Path $resolvedInstallDir 'webrtc-helper.exe')
+      webrtcIceServersJson = ""
       autoConsent = $true
       autoConsentBy = "auto-consent:" + $env:COMPUTERNAME
     } | ConvertTo-Json -Depth 10 | Set-Content $configPath -Encoding UTF8
@@ -447,6 +449,13 @@ if ($AutoProvision) {
     if ($resp.data.dashboardBase) {
       $DashboardBase = [string]$resp.data.dashboardBase
     }
+    if ($resp.data.webrtcIceServersJson) {
+      if ($config.PSObject.Properties.Name -contains 'webrtcIceServersJson') {
+        $config.webrtcIceServersJson = [string]$resp.data.webrtcIceServersJson
+      } else {
+        $config | Add-Member -NotePropertyName webrtcIceServersJson -NotePropertyValue ([string]$resp.data.webrtcIceServersJson) -Force
+      }
+    }
 
     Write-Host "streamId 자동 발급: $StreamId"
     $config.dashboardBase = $DashboardBase
@@ -454,6 +463,28 @@ if ($AutoProvision) {
     $config.streamKey = $streamKey
     $config.ingestSecret = $ingestSecret
   }
+
+  # 기존 stream 자격증명을 재사용하는 설치에서도 서버의 최신 TURN/STUN 설정을 받아온다.
+  # fresh provision은 위 응답에 이미 포함되지만, 재설치/업데이트 경로는 provision을 건너뛸 수 있다.
+  try {
+    if (-not [string]::IsNullOrWhiteSpace([string]$StreamId) -and
+        -not [string]::IsNullOrWhiteSpace([string]$config.ingestSecret)) {
+      $rtcConfigUrl = "$($DashboardBase.TrimEnd('/'))/api/streams/$StreamId/control/session?role=agent"
+      $rtcHeaders = @{ Authorization = ('Bearer ' + [string]$config.ingestSecret) }
+      $rtcResp = Invoke-RestMethod -Method GET -Uri $rtcConfigUrl -Headers $rtcHeaders -TimeoutSec 8
+      if ($rtcResp.data -and $rtcResp.data.webrtcIceServersJson) {
+        if ($config.PSObject.Properties.Name -contains 'webrtcIceServersJson') {
+          $config.webrtcIceServersJson = [string]$rtcResp.data.webrtcIceServersJson
+        } else {
+          $config | Add-Member -NotePropertyName webrtcIceServersJson -NotePropertyValue ([string]$rtcResp.data.webrtcIceServersJson) -Force
+        }
+        Write-Host "WebRTC ICE 설정 갱신 완료"
+      }
+    }
+  } catch {
+    Write-Warning "WebRTC ICE 설정 갱신 실패(스트림이 아직 ACTIVE가 아니면 정상): $($_.Exception.Message)"
+  }
+
   if ($WatermarkText) {
     $config.watermarkText = $WatermarkText
   }

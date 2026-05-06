@@ -90,6 +90,19 @@ export function getDefaultRetentionDays(): number {
   return Number(process.env.STREAM_RECORDINGS_DEFAULT_RETENTION_DAYS || "7");
 }
 
+export function getWebRtcIceServersJson(): string {
+  const fallback = [{ urls: "stun:stun.l.google.com:19302" }];
+  const raw = process.env.WEBRTC_ICE_SERVERS || process.env.NEXT_PUBLIC_WEBRTC_ICE_SERVERS;
+  if (!raw) return JSON.stringify(fallback);
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.length > 0) return JSON.stringify(parsed);
+  } catch {
+    // Invalid JSON should not break provisioning; agents can still use STUN fallback.
+  }
+  return JSON.stringify(fallback);
+}
+
 export function getStreamDataDir(): string {
   return process.env.STREAM_DATA_DIR || "/var/streams";
 }
