@@ -43,7 +43,8 @@ type ControlWindow = {
 const POLL_MS = 3000;
 
 async function fetchPcs(): Promise<PcRow[]> {
-  const res = await fetch("/api/control/pcs", { cache: "no-store" });
+  // 프록시/CDN이 Cache-Control을 무시하는 경우를 줄이기 위해 매 요청 URL을 유니크하게 한다.
+  const res = await fetch(`/api/control/pcs?_=${Date.now()}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = (await res.json()) as { data: PcRow[] };
   return json.data;

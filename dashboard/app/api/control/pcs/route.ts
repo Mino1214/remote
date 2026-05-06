@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { rustdeskApi } from "@/lib/rustdesk-api";
+import { noStoreResponseHeaders } from "@/lib/no-store-headers";
+import { rustdeskApi, type RustdeskDevice } from "@/lib/rustdesk-api";
 import { requireServerSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +20,15 @@ export async function GET() {
   try {
     await requireServerSession();
 
-    const [remoteDevices, metas, streams] = await Promise.all([
-      rustdeskApi.listDevices(),
+    let remoteDevices: RustdeskDevice[] = [];
+    try {
+      remoteDevices = await rustdeskApi.listDevices();
+    } catch (error) {
+      console.error("[api/control/pcs] rustdeskApi.listDevices threw", error);
+      remoteDevices = [];
+    }
+
+    const [metas, streams] = await Promise.all([
       prisma.deviceMeta.findMany(),
       prisma.stream.findMany({
         orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
@@ -100,11 +108,17 @@ export async function GET() {
       return (a.alias || a.hostname || a.id).localeCompare(b.alias || b.hostname || b.id);
     });
 
-    return NextResponse.json({ data: rows });
+    return NextResponse.json({ data: rows }, { headers: noStoreResponseHeaders });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401, headers: noStoreResponseHeaders }
+      );
     }
-    return NextResponse.json({ error: "Failed to fetch control PCs" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch control PCs" },
+      { status: 500, headers: noStoreResponseHeaders }
+    );
   }
 }
