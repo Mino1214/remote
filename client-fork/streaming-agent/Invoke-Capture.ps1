@@ -40,8 +40,7 @@ $vf = "drawtext=text='$wm':x=W-tw-20:y=20:fontsize=24:fontcolor=red@0.9:box=1:bo
 # - Authorization 헤더는 ffmpeg의 HTTP 옵션을 통해 모든 PUT/DELETE에 적용.
 $base = $IngestBaseUrl.TrimEnd('/')
 $manifestUrl = "$base/index.m3u8"
-$segPattern  = "$base/seg_%05d.m4s"
-$initPattern = "$base/init.mp4"
+$segPattern  = "$base/seg_%05d.ts"
 $authHeader = "Authorization: Bearer $IngestSecret`r`n"
 
 # PowerShell 5.1(.NET Framework)는 ProcessStartInfo.ArgumentList를 지원하지 않으므로
@@ -72,6 +71,7 @@ $ffArgs = @(
   '-tune', 'zerolatency',
   '-g', "$($Framerate * $SegmentSeconds)",
   '-keyint_min', "$($Framerate * $SegmentSeconds)",
+  '-sc_threshold', '0',
   '-b:v', "${BitrateKbps}k",
   '-maxrate', "${BitrateKbps}k",
   '-bufsize', "$($BitrateKbps * 2)k",
@@ -83,9 +83,8 @@ $ffArgs = @(
   '-headers', $authHeader,
   '-hls_time', "$SegmentSeconds",
   '-hls_list_size', "$PlaylistSize",
-  '-hls_flags', 'delete_segments+independent_segments+omit_endlist+append_list',
-  '-hls_segment_type', 'fmp4',
-  '-hls_fmp4_init_filename', $initPattern,
+  '-hls_flags', 'delete_segments+independent_segments+omit_endlist',
+  '-hls_segment_type', 'mpegts',
   '-hls_segment_filename', $segPattern,
   $manifestUrl
 )
