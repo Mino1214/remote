@@ -2,6 +2,7 @@
 
 import { Check, Monitor, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StreamLivePlayer } from "@/components/stream-live-player";
@@ -21,6 +22,7 @@ type PcRow = {
     streamKey: string;
     displayName: string | null;
     status: "ACTIVE" | "PAUSED" | "PENDING" | "REVOKED";
+    health: "LIVE" | "STALE" | null;
     lastSeenAt: string | null;
     sessions: number;
     recordings: number;
@@ -32,6 +34,10 @@ type ControlWindow = {
   deviceId: string;
   streamId: string;
   title: string;
+  top: number;
+  left: number;
+  width: number;
+  height: number;
 };
 
 const POLL_MS = 3000;
@@ -60,6 +66,7 @@ export function ControlDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -78,6 +85,13 @@ export function ControlDashboard() {
     const timer = window.setInterval(() => void load(), POLL_MS);
     return () => window.clearInterval(timer);
   }, [load]);
+
+  useEffect(() => {
+    const apply = () => setIsMobile(window.innerWidth < 768);
+    apply();
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
+  }, []);
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -105,7 +119,11 @@ export function ControlDashboard() {
         key: `${row.id}-${stream.id}-${Date.now()}`,
         deviceId: row.id,
         streamId: stream.id,
-        title: displayName(row)
+        title: displayName(row),
+        top: 72 + current.length * 26,
+        left: 260 + current.length * 26,
+        width: 880,
+        height: 520
       }
     ]);
   }
@@ -137,12 +155,80 @@ export function ControlDashboard() {
     setWindows((current) => current.filter((win) => win.key !== key));
   }
 
+  function resizeWindow(key: string, dir: string, deltaX: number, deltaY: number) {
+    setWindows((current) =>
+      current.map((win) => {
+        if (win.key !== key) return win;
+        let { top, left, width, height } = win;
+        const minWidth = 640;
+        const minHeight = 420;
+
+        if (dir.includes("e")) width += deltaX;
+        if (dir.includes("s")) height += deltaY;
+        if (dir.includes("w")) {
+          width -= deltaX;
+          left += deltaX;
+        }
+        if (dir.includes("n")) {
+          height -= deltaY;
+          top += deltaY;
+        }
+
+        if (width < minWidth) {
+          if (dir.includes("w")) left -= minWidth - width;
+          width = minWidth;
+        }
+        if (height < minHeight) {
+          if (dir.includes("n")) top -= minHeight - height;
+          height = minHeight;
+        }
+
+        const maxWidth = window.innerWidth - 16;
+        const maxHeight = window.innerHeight - 24;
+        width = Math.min(width, maxWidth);
+        height = Math.min(height, maxHeight);
+        left = Math.min(Math.max(left, 0), window.innerWidth - width);
+        top = Math.min(Math.max(top, 0), window.innerHeight - height);
+
+        return { ...win, top, left, width, height };
+      })
+    );
+  }
+
+  function startResize(
+    e: ReactMouseEvent<HTMLDivElement>,
+    key: string,
+    dir: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw"
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    let prevX = e.clientX;
+    let prevY = e.clientY;
+
+    function onMove(event: MouseEvent) {
+      const deltaX = event.clientX - prevX;
+      const deltaY = event.clientY - prevY;
+      prevX = event.clientX;
+      prevY = event.clientY;
+      resizeWindow(key, dir, deltaX, deltaY);
+    }
+
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-4 border-b border-border pb-5 lg:flex-row lg:items-end lg:justify-between">
+      <div className="sticky top-[56px] z-10 -mx-3 border-b border-border bg-background px-3 pb-3 pt-2 sm:-mx-4 sm:px-4 md:static md:mx-0 md:border-b-0 md:bg-transparent md:px-0 md:pb-0 md:pt-0">
+        <div className="flex flex-col gap-3 md:border-b md:border-border md:pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase text-primary">Remote Control</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-normal">PC Control</h1>
+          <h1 className="mt-1 text-2xl font-semibold tracking-normal sm:text-3xl">PC Control</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {onlineCount} online / {pcs.length} total
           </p>
@@ -156,6 +242,7 @@ export function ControlDashboard() {
             className="pl-9"
           />
         </div>
+      </div>
       </div>
 
       {error ? <div className="rounded-md border border-border px-3 py-2 text-sm text-primary">{error}</div> : null}
@@ -183,7 +270,7 @@ export function ControlDashboard() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") openWindow(row);
               }}
-              className={`grid gap-3 border-b border-border px-4 py-4 transition last:border-b-0 md:grid-cols-[1fr_120px_120px] md:items-center ${
+              className={`grid gap-3 border-b border-border px-3 py-3 transition last:border-b-0 sm:px-4 sm:py-4 md:grid-cols-[1fr_120px_120px] md:items-center ${
                 disabled ? "cursor-default opacity-70" : "cursor-pointer hover:bg-muted"
               }`}
             >
@@ -200,20 +287,19 @@ export function ControlDashboard() {
                     <div className="truncate text-xs text-muted-foreground">{row.id}</div>
                   </div>
                 </div>
-                <div className="flex max-w-md gap-2" onClick={(e) => e.stopPropagation()}>
+                <div className="flex w-full max-w-md gap-2" onClick={(e) => e.stopPropagation()}>
                   <Input
                     value={aliasValue}
                     onChange={(e) => setDraftAliases((current) => ({ ...current, [row.id]: e.target.value }))}
                     placeholder="관리자 표시명"
-                    className="h-9"
+                    className="h-10 text-base"
                   />
                   <Button
                     type="button"
-                    size="sm"
                     onClick={() => void saveAlias(row)}
                     disabled={savingId === row.id}
                     aria-label="이름 저장"
-                    className="h-9 w-9 p-0"
+                    className="h-10 w-10 shrink-0 p-0"
                   >
                     <Check className="h-4 w-4" />
                   </Button>
@@ -225,7 +311,11 @@ export function ControlDashboard() {
                   {row.online ? "ONLINE" : "OFFLINE"}
                 </span>
                 <div className="mt-1 text-xs font-normal text-muted-foreground">
-                  {row.stream ? row.stream.status : "NO STREAM"}
+                  {row.stream
+                    ? row.stream.status === "ACTIVE" && row.stream.health === "STALE"
+                      ? "ACTIVE (STALE)"
+                      : row.stream.status
+                    : "NO STREAM"}
                 </div>
               </div>
 
@@ -242,15 +332,27 @@ export function ControlDashboard() {
         ) : null}
       </div>
 
-      {windows.map((win, index) => (
+      {windows.map((win) => (
         <div
           key={win.key}
-          className="fixed z-50 overflow-hidden rounded-lg border border-border bg-card shadow-2xl"
-          style={{
-            top: `${72 + index * 26}px`,
-            left: `max(16px, min(${260 + index * 26}px, calc(100vw - 896px)))`,
-            width: "min(880px, calc(100vw - 32px))"
-          }}
+          className={`fixed z-50 border border-border bg-card shadow-2xl ${
+            isMobile ? "inset-0 overflow-hidden rounded-none" : "flex flex-col overflow-hidden rounded-lg"
+          }`}
+          style={
+            isMobile
+              ? undefined
+              : {
+                  top: `${win.top}px`,
+                  left: `${win.left}px`,
+                  width: `min(${win.width}px, calc(100vw - 16px))`,
+                  height: `${win.height}px`,
+                  maxWidth: "calc(100vw - 16px)",
+                  maxHeight: "calc(100vh - 24px)",
+                  minWidth: "640px",
+                  minHeight: "420px",
+                  resize: "none"
+                }
+          }
         >
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <div className="min-w-0">
@@ -268,7 +370,21 @@ export function ControlDashboard() {
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <StreamLivePlayer streamId={win.streamId} watermarkText={win.title} autoConnect compact />
+          <div className="min-h-0 flex-1">
+            <StreamLivePlayer streamId={win.streamId} watermarkText={win.title} autoConnect compact />
+          </div>
+          {!isMobile ? (
+            <>
+              <div className="absolute inset-x-2 top-0 h-1 cursor-n-resize" onMouseDown={(e) => startResize(e, win.key, "n")} />
+              <div className="absolute inset-x-2 bottom-0 h-1 cursor-s-resize" onMouseDown={(e) => startResize(e, win.key, "s")} />
+              <div className="absolute inset-y-2 left-0 w-1 cursor-w-resize" onMouseDown={(e) => startResize(e, win.key, "w")} />
+              <div className="absolute inset-y-2 right-0 w-1 cursor-e-resize" onMouseDown={(e) => startResize(e, win.key, "e")} />
+              <div className="absolute left-0 top-0 h-3 w-3 cursor-nw-resize" onMouseDown={(e) => startResize(e, win.key, "nw")} />
+              <div className="absolute right-0 top-0 h-3 w-3 cursor-ne-resize" onMouseDown={(e) => startResize(e, win.key, "ne")} />
+              <div className="absolute left-0 bottom-0 h-3 w-3 cursor-sw-resize" onMouseDown={(e) => startResize(e, win.key, "sw")} />
+              <div className="absolute bottom-0 right-0 h-3 w-3 cursor-se-resize" onMouseDown={(e) => startResize(e, win.key, "se")} />
+            </>
+          ) : null}
         </div>
       ))}
     </div>

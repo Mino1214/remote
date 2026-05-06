@@ -10,12 +10,23 @@ export const authOptions: NextAuthOptions = {
     CredentialsProvider({
       name: "credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
+        email: { label: "ID", type: "text" },
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials.password) return null;
-        const admin = await prisma.admin.findUnique({ where: { email: credentials.email } });
+        const loginId = credentials.email.trim();
+        if (!loginId) return null;
+
+        let admin = await prisma.admin.findUnique({ where: { email: loginId } });
+        // 이메일 형식이 아닌 단순 ID 입력을 허용한다.
+        if (!admin && !loginId.includes("@")) {
+          admin = await prisma.admin.findFirst({
+            where: {
+              OR: [{ email: loginId }, { email: { startsWith: `${loginId}@` } }]
+            }
+          });
+        }
         if (!admin) return null;
         const ok = await compare(credentials.password, admin.password);
         if (!ok) return null;

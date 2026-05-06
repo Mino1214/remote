@@ -40,6 +40,14 @@ function cleanupExpired() {
 
 export function createControlSession(streamId: string, createdBy: string): ControlSession {
   cleanupExpired();
+  const store = getStore();
+  // 동일 stream의 이전 제어 세션은 새 세션 생성 시 즉시 정리한다.
+  // (팝업 재진입 후에도 에이전트가 최신 세션으로 빠르게 전환되도록 보장)
+  for (const [existingId, existing] of store.entries()) {
+    if (existing.streamId === streamId) {
+      store.delete(existingId);
+    }
+  }
   const id = `ctl_${crypto.randomBytes(10).toString("hex")}`;
   const now = Date.now();
   const session: ControlSession = {
@@ -57,7 +65,7 @@ export function createControlSession(streamId: string, createdBy: string): Contr
     events: [],
     nextSeq: 1
   };
-  getStore().set(id, session);
+  store.set(id, session);
   return session;
 }
 

@@ -32,6 +32,7 @@ type config struct {
 	FPS           int
 	BitrateKbps   int
 	PollInterval  time.Duration
+	IceServersJSON string
 }
 
 type sessionResponse struct {
@@ -90,6 +91,7 @@ func parseFlags() config {
 	flag.IntVar(&cfg.FPS, "fps", 15, "capture framerate")
 	flag.IntVar(&cfg.BitrateKbps, "bitrate-kbps", 1500, "video bitrate")
 	flag.IntVar(&pollMS, "poll-ms", 1000, "signaling poll interval in milliseconds")
+	flag.StringVar(&cfg.IceServersJSON, "ice-servers-json", "", "JSON array of RTCIceServer objects (optional)")
 	flag.Parse()
 
 	if strings.TrimSpace(cfg.DashboardBase) == "" || strings.TrimSpace(cfg.StreamID) == "" || strings.TrimSpace(cfg.IngestSecret) == "" {
@@ -101,6 +103,17 @@ func parseFlags() config {
 	}
 	cfg.PollInterval = time.Duration(pollMS) * time.Millisecond
 	return cfg
+}
+
+func iceServersFromJSON(raw string) []webrtc.ICEServer {
+	if strings.TrimSpace(raw) == "" {
+		return []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}}
+	}
+	var out []webrtc.ICEServer
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || len(out) == 0 {
+		return []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}}
+	}
+	return out
 }
 
 func (h *helper) run(ctx context.Context) error {
@@ -174,7 +187,7 @@ func (h *helper) serveSession(ctx context.Context, sessionID string) error {
 	}
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine), webrtc.WithInterceptorRegistry(interceptors))
 	pc, err := api.NewPeerConnection(webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
+		ICEServers: iceServersFromJSON(h.cfg.IceServersJSON),
 	})
 	if err != nil {
 		return err

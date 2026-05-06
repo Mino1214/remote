@@ -349,6 +349,9 @@ function Start-WebRtcHelper {
       '--fps', (ValueOrDefault $config.captureFramerate 15),
       '--bitrate-kbps', (ValueOrDefault $config.captureBitrateKbps 1500)
     )
+    if (-not [string]::IsNullOrWhiteSpace([string]$config.webrtcIceServersJson)) {
+      $args += @('--ice-servers-json', [string]$config.webrtcIceServersJson)
+    }
     $argString = ($args | ForEach-Object { Convert-ToCmdArg ([string]$_) }) -join ' '
     $script:webrtcProc = Start-Process -FilePath $helperPath `
       -ArgumentList $argString `

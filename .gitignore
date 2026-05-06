@@ -1,0 +1,5 @@
+.DS_Store
+
+# local env (never commit secrets)
+docker/.env
+

@@ -36,8 +36,8 @@ export default function LoginPage() {
         </div>
         <form className="space-y-3" onSubmit={onSubmit}>
           <Input
-            placeholder="admin@example.com"
-            type="email"
+            placeholder="admin"
+            type="text"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required

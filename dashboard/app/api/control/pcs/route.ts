@@ -5,7 +5,9 @@ import { requireServerSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-const ONLINE_WINDOW_MS = 90_000;
+// 스트림 기반 온라인 판정 윈도우. 이 시간 안에 lastSeenAt이 갱신되지 않으면 오프라인 처리.
+const ONLINE_WINDOW_MS = 20_000;
+const REMOTE_ONLINE_WINDOW_MS = 60_000;
 
 function validDate(value: Date | string | null | undefined): Date | null {
   if (!value) return null;
@@ -49,9 +51,19 @@ export async function GET() {
       const deviceStreams = byDevice.get(id) ?? [];
       const activeStream = deviceStreams.find((stream) => stream.status === "ACTIVE") ?? null;
       const latestStream = activeStream ?? deviceStreams[0] ?? null;
-      const latestSeen = validDate(latestStream?.lastSeenAt) ?? validDate(remote?.lastSeenAt);
-      const streamingOnline = latestSeen ? Date.now() - latestSeen.getTime() < ONLINE_WINDOW_MS : false;
-      const online = Boolean(remote?.online) || streamingOnline;
+      const latestStreamSeen = validDate(latestStream?.lastSeenAt);
+      const latestRemoteSeen = validDate(remote?.lastSeenAt);
+      const latestSeen = latestStreamSeen ?? latestRemoteSeen;
+      const streamingOnline = latestStreamSeen
+        ? Date.now() - latestStreamSeen.getTime() < ONLINE_WINDOW_MS
+        : false;
+      const remoteSeenOnline = latestRemoteSeen
+        ? Date.now() - latestRemoteSeen.getTime() < REMOTE_ONLINE_WINDOW_MS
+        : false;
+      const hasActiveStream = deviceStreams.some((stream) => stream.status === "ACTIVE");
+      // ACTIVE 스트림이라도 heartbeat 지연이 있을 수 있어, remote lastSeen도 함께 반영한다.
+      // (stale 오탐으로 OFFLINE 고정되는 현상 완화)
+      const online = hasActiveStream ? true : remoteSeenOnline || streamingOnline;
 
       return {
         id,
@@ -69,6 +81,12 @@ export async function GET() {
               streamKey: latestStream.streamKey,
               displayName: latestStream.displayName,
               status: latestStream.status,
+              health:
+                latestStream.status === "ACTIVE"
+                  ? streamingOnline
+                    ? "LIVE"
+                    : "STALE"
+                  : null,
               lastSeenAt: latestStream.lastSeenAt ? latestStream.lastSeenAt.toISOString() : null,
               sessions: latestStream._count.sessions,
               recordings: latestStream._count.recordings
