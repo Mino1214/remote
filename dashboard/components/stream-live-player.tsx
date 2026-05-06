@@ -2,7 +2,7 @@
 
 import Hls from "hls.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 function iceServersFromEnv(): RTCIceServer[] {
   const raw = process.env.NEXT_PUBLIC_WEBRTC_ICE_SERVERS;
@@ -33,6 +33,7 @@ export function StreamLivePlayer({
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
+  const textInputRef = useRef<HTMLTextAreaElement | null>(null);
   const controlSessionIdRef = useRef<string | null>(null);
   const signalPollRef = useRef<number | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -43,6 +44,7 @@ export function StreamLivePlayer({
   const agentCandidateCursorRef = useRef(0);
   const lastMouseMoveAtRef = useRef(0);
   const startedRef = useRef(false);
+  const composingRef = useRef(false);
   /** ICE 협상 중 disconnected 가 자주 떠서 바로 "연결 불안정"이 뜨는 오탐을 줄이기 위한 디바운스 */
   const webrtcUnstableTimerRef = useRef<number | null>(null);
 
@@ -227,6 +229,59 @@ export function StreamLivePlayer({
     const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / Math.max(1, rect.height)));
     return { x, y, w: rect.width, h: rect.height };
   }, []);
+
+  const focusTextInput = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      textInputRef.current?.focus({ preventScroll: true });
+    });
+  }, []);
+
+  const sendTextInput = useCallback(
+    (value: string) => {
+      if (!value) return;
+      sendControlEvent("text_input", { text: value });
+    },
+    [sendControlEvent]
+  );
+
+  const flushTextInput = useCallback(
+    (element: HTMLTextAreaElement) => {
+      const value = element.value;
+      if (!value) return;
+      element.value = "";
+      sendTextInput(value);
+    },
+    [sendTextInput]
+  );
+
+  const handleTextInput = useCallback(
+    (event: FormEvent<HTMLTextAreaElement>) => {
+      if (composingRef.current) return;
+      flushTextInput(event.currentTarget);
+    },
+    [flushTextInput]
+  );
+
+  const handleRemoteKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLElement>) => {
+      const isComposing =
+        composingRef.current || event.nativeEvent.isComposing || event.key === "Process";
+      if (isComposing) return;
+
+      if (event.ctrlKey || event.metaKey || event.altKey) {
+        sendControlEvent("key_down", { key: event.key, code: event.code });
+        return;
+      }
+
+      if (event.key.length === 1) {
+        return;
+      }
+
+      event.preventDefault();
+      sendControlEvent("key_down", { key: event.key, code: event.code });
+    },
+    [sendControlEvent]
+  );
 
   const markVideoFrame = useCallback(() => {
     videoReadyRef.current = true;
@@ -420,7 +475,7 @@ export function StreamLivePlayer({
             if (!videoRef.current) return;
             const meta = pointerMeta(videoRef.current, e);
             sendControlEvent("mouse_down", { ...meta, button: e.button });
-            e.currentTarget.focus();
+            focusTextInput();
           }}
           onMouseUp={(e) => {
             if (!videoRef.current) return;
@@ -440,12 +495,32 @@ export function StreamLivePlayer({
             const meta = pointerMeta(videoRef.current, e);
             sendControlEvent("mouse_wheel", { ...meta, dx: e.deltaX, dy: e.deltaY });
           }}
-          onKeyDown={(e) => {
-            sendControlEvent("key_down", { key: e.key, code: e.code });
-          }}
+          onKeyDown={handleRemoteKeyDown}
           onKeyUp={(e) => {
             sendControlEvent("key_up", { key: e.key, code: e.code });
           }}
+        />
+        <textarea
+          ref={textInputRef}
+          aria-label="remote text input"
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          className="absolute left-2 top-2 h-px w-px resize-none border-0 bg-transparent p-0 text-[16px] opacity-0 outline-none"
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            composingRef.current = false;
+            if (e.currentTarget.value) {
+              flushTextInput(e.currentTarget);
+            } else if (e.data) {
+              sendTextInput(e.data);
+            }
+          }}
+          onInput={handleTextInput}
+          onKeyDown={handleRemoteKeyDown}
         />
 
         {shouldShowIndicator ? (

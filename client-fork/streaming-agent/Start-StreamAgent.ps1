@@ -181,18 +181,43 @@ function Invoke-ControlApi {
 function Convert-KeyToSendKeys([string]$key, [string]$code) {
   if ($code -eq 'Enter') { return '{ENTER}' }
   if ($code -eq 'Backspace') { return '{BACKSPACE}' }
+  if ($code -eq 'Delete') { return '{DELETE}' }
   if ($code -eq 'Tab') { return '{TAB}' }
   if ($code -eq 'Escape') { return '{ESC}' }
   if ($code -eq 'ArrowUp') { return '{UP}' }
   if ($code -eq 'ArrowDown') { return '{DOWN}' }
   if ($code -eq 'ArrowLeft') { return '{LEFT}' }
   if ($code -eq 'ArrowRight') { return '{RIGHT}' }
+  if ($code -eq 'Home') { return '{HOME}' }
+  if ($code -eq 'End') { return '{END}' }
+  if ($code -eq 'PageUp') { return '{PGUP}' }
+  if ($code -eq 'PageDown') { return '{PGDN}' }
   if ($key -and $key.Length -eq 1) {
     # SendKeys 예약문자 escape
     if ('+^%~(){}[]'.Contains($key)) { return "{$key}" }
     return $key
   }
   return $null
+}
+
+function Send-TextInput([string]$text) {
+  if ([string]::IsNullOrEmpty($text)) { return }
+  $previousClipboard = $null
+  try {
+    $previousClipboard = [System.Windows.Forms.Clipboard]::GetDataObject()
+  } catch {}
+
+  try {
+    [System.Windows.Forms.Clipboard]::SetText($text, [System.Windows.Forms.TextDataFormat]::UnicodeText)
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 80
+  } finally {
+    if ($previousClipboard) {
+      try {
+        [System.Windows.Forms.Clipboard]::SetDataObject($previousClipboard, $true)
+      } catch {}
+    }
+  }
 }
 
 function Invoke-ControlEvent([string]$payloadText) {
@@ -226,6 +251,9 @@ function Invoke-ControlEvent([string]$payloadText) {
       'key_down' {
         $send = Convert-KeyToSendKeys -key ([string]$evt.key) -code ([string]$evt.code)
         if ($send) { [System.Windows.Forms.SendKeys]::SendWait($send) }
+      }
+      'text_input' {
+        Send-TextInput -text ([string]$evt.text)
       }
     }
   } catch {
