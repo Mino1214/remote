@@ -17,9 +17,9 @@ credentials-file: /Users/myno/.cloudflared/10dda781-c1fb-4144-9504-c176a5c4640d.
 
 ingress:
   - hostname: housingnewshub.info
-    service: http://127.0.0.1:3010
+    service: http://127.0.0.1:3011
   - hostname: admin.housingnewshub.info
-    service: http://127.0.0.1:3010
+    service: http://127.0.0.1:3011
   - hostname: rd.housingnewshub.info
     service: http://127.0.0.1:21118
   - service: http_status:404

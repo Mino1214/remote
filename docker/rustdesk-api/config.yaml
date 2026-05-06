@@ -1,0 +1,74 @@
+# lejianwen/rustdesk-api 기본 예시를 Docker Compose(hbbs/hbbr 네트워크)에 맞게 조정한 설정.
+# compose에서 /app/conf/config.yaml 로 마운트한다.
+
+lang: "zh-CN"
+app:
+  web-client: 1
+  register: false
+  register-status: 1
+  captcha-threshold: -1 # <0 이면 캡차 비활성 (대시보드가 관리자 로그인으로 JWT 발급 가능)
+  ban-threshold: 0
+  show-swagger: 0
+  token-expire: 168h
+  web-sso: true
+  disable-pwd-login: false
+
+admin:
+  title: "RustDesk API Admin"
+  hello-file: "./conf/admin/hello.html"
+  hello: ""
+  id-server-port: 21116
+  relay-server-port: 21117
+
+gin:
+  api-addr: "0.0.0.0:21114"
+  mode: "release"
+  resources-path: "resources"
+  trust-proxy: ""
+
+gorm:
+  type: "sqlite"
+  max-idle-conns: 10
+  max-open-conns: 100
+
+mysql:
+  username: ""
+  password: ""
+  addr: ""
+  dbname: ""
+  tls: "false"
+
+postgresql:
+  host: "127.0.0.1"
+  port: "5432"
+  user: ""
+  password: ""
+  dbname: "postgres"
+  sslmode: "disable"
+  time-zone: "Asia/Shanghai"
+
+rustdesk:
+  id-server: "hbbs:21116"
+  relay-server: "hbbr:21117"
+  api-server: "http://127.0.0.1:21114"
+  key: ""
+  key-file: "/data/id_ed25519.pub"
+  personal: 1
+  webclient-magic-queryonline: 0
+  ws-host: ""
+
+logger:
+  path: "./runtime/log.txt"
+  level: "info"
+  report-caller: true
+
+proxy:
+  enable: false
+  host: "http://127.0.0.1:1080"
+
+jwt:
+  key: ""
+  expire-duration: 168h
+
+ldap:
+  enable: false

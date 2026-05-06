@@ -45,6 +45,7 @@ services:
       - "21114"
     volumes:
       - hbbs_data:/data:ro
+      - ./rustdesk-api/config.yaml:/app/conf/config.yaml:ro
     depends_on:
       - hbbs
     healthcheck:
@@ -85,6 +86,9 @@ services:
     build:
       context: ../dashboard
       dockerfile: Dockerfile
+      args:
+        NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+        NEXTAUTH_URL: ${NEXTAUTH_URL}
     restart: unless-stopped
     env_file:
       - .env
@@ -116,7 +120,8 @@ services:
         [{"urls":["stun:stun.l.google.com:19302"]},
          {"urls":["turn:${TURN_HOST}:3478?transport=udp","turn:${TURN_HOST}:3478?transport=tcp"],"username":"${TURN_USER}","credential":"${TURN_PASSWORD}"}]
     ports:
-      - "3010:3000"
+      # 호스트 3010은 Tosino solution-main 등 다른 서비스와 공유 시 충돌 → housing 대시보드는 3011
+      - "3011:3000"
     volumes:
       - streams_data:/var/streams
     depends_on:

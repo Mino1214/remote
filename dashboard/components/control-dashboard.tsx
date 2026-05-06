@@ -328,7 +328,13 @@ export function ControlDashboard() {
         })}
 
         {!loading && filtered.length === 0 ? (
-          <div className="px-4 py-8 text-sm text-muted-foreground">표시할 PC가 없습니다.</div>
+          <div className="space-y-2 px-4 py-8 text-sm text-muted-foreground">
+            <div>표시할 PC가 없습니다.</div>
+            <div className="text-xs leading-relaxed">
+              RustDesk 클라이언트가 이 서버의 ID로 접속해 rustdesk-api에 등록되거나, 스트리밍 에이전트가{" "}
+              <code className="rounded bg-muted px-1">/api/agent/provision</code> 으로 등록된 경우에 표시됩니다.
+            </div>
+          </div>
         ) : null}
       </div>
 
